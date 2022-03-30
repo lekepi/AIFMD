@@ -4,12 +4,9 @@ from utils import previous_quarter
 from xml.etree.ElementTree import Element, SubElement, Comment
 import pandas as pd
 from utils import prettify, simple_email, list_to_html_table
-
 from manual_data import EURUSD_RATE, AUM_ALTO_USD, AUM_NEUTRAL_USD
 
-
-# XML:
-# http://pymotw.com/2/xml/etree/ElementTree/create.html
+# XML: http://pymotw.com/2/xml/etree/ElementTree/create.html
 
 
 def create_aifm():
@@ -27,32 +24,34 @@ def create_aifm():
                                          'xsi:noNamespaceSchemaLocation': 'AIFMD_DATMAN_V1.2.xsd',
                                          'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance'})
 
-    table_main = [['Description', 'Value']]
+    comment = Comment('AIFM Report')
+    root.append(comment)
+    table_main = [['N', 'Description', 'Value']]
     html = ''
     AIFMRecordInfo = SubElement(root, 'AIFMRecordInfo')
 
     FilingType_value = ['INIT', 'initial reporting for the reporting period']
     FilingType = SubElement(AIFMRecordInfo, 'FilingType')
     FilingType.text = FilingType_value[0]
-    table_main.append(['Filing Type', FilingType_value[1]])
+    table_main.append(['4', 'Filing Type', f'{FilingType_value[0]}: {FilingType_value[1]}'])
 
     AIFMContentType_value = ['1', '24(1) reporting contents for all AIFs managed']
     AIFMContentType = SubElement(AIFMRecordInfo, 'AIFMContentType')
     AIFMContentType.text = AIFMContentType_value[0]
-    table_main.append(['Content Type', AIFMContentType_value[1]])
+    table_main.append(['5', 'Content Type', AIFMContentType_value[1]])
 
     ReportingPeriodStartDate = SubElement(AIFMRecordInfo, 'ReportingPeriodStartDate')
     ReportingPeriodStartDate.text = start_date_str
-    table_main.append(['Reporting Start Date', start_date_str])
+    table_main.append(['6', 'Reporting Start Date', start_date_str])
     ReportingPeriodEndDate = SubElement(AIFMRecordInfo, 'ReportingPeriodEndDate')
     ReportingPeriodEndDate.text = end_date_str
-    table_main.append(['Reporting End Date', end_date_str])
+    table_main.append(['7', 'Reporting End Date', end_date_str])
     ReportingPeriodType = SubElement(AIFMRecordInfo, "ReportingPeriodType")
     ReportingPeriodType.text = quarter
-    table_main.append(['Quarter', quarter])
+    table_main.append(['8', 'Reporting Period Type', quarter])
     ReportingPeriodYear = SubElement(AIFMRecordInfo, 'ReportingPeriodYear')
     ReportingPeriodYear.text = str(year)
-    table_main.append(['Year', str(year)])
+    table_main.append(['9', 'Reporting Period Year', str(year)])
 
     # <AIFMReportingObligationChangeFrequencyCode> Optional
     # <AIFMReportingObligationChangeContentsCode> Optional
@@ -66,35 +65,39 @@ def create_aifm():
     AIFMReportingCode_value = ('5', '"Authorised AIFM with quarterly obligation " under Article 7')
     AIFMReportingCode = SubElement(AIFMRecordInfo, 'AIFMReportingCode')
     AIFMReportingCode.text = AIFMReportingCode_value[0]  # "Authorised AIFM with quarterly obligation " under Article 7
-    table_main.append(['Reporting Code', AIFMReportingCode_value[1]])
+    table_main.append(['16', 'Reporting Code', f'{AIFMReportingCode_value[0]}: {AIFMReportingCode_value[1]}'])
 
     AIFMJurisdiction_value = 'GB'
     AIFMJurisdiction = SubElement(AIFMRecordInfo, 'AIFMJurisdiction')
     AIFMJurisdiction.text = AIFMJurisdiction_value
-    table_main.append(['Jurisdiction', AIFMJurisdiction_value])
+    table_main.append(['17', 'Jurisdiction', AIFMJurisdiction_value])
 
     AIFMNationalCode_value = '924813'
     AIFMNationalCode = SubElement(AIFMRecordInfo, 'AIFMNationalCode')
     AIFMNationalCode.text = AIFMNationalCode_value
-    table_main.append(['National Code', AIFMNationalCode_value])
+    table_main.append(['18', 'National Code', AIFMNationalCode_value])
 
     AIFMName_value = 'Ananda Asset Management Limited'
     AIFMName = SubElement(AIFMRecordInfo, 'AIFMName')
     AIFMName.text = AIFMName_value
-    table_main.append(['Name', AIFMName_value])
+    table_main.append(['19', 'Name', AIFMName_value])
 
+    AIFMEEAFlag_value = 'true'
     AIFMEEAFlag = SubElement(AIFMRecordInfo, 'AIFMEEAFlag')
-    AIFMEEAFlag.text = 'true'
+    AIFMEEAFlag.text = AIFMEEAFlag_value
+    table_main.append(['20', 'AIFM EEA Flag', AIFMEEAFlag_value])
 
+    AIFMNoReportingFlag_value = 'false'
     AIFMNoReportingFlag = SubElement(AIFMRecordInfo, 'AIFMNoReportingFlag')
-    AIFMNoReportingFlag.text = 'false'
+    AIFMNoReportingFlag.text = AIFMNoReportingFlag_value
+    table_main.append(['21', 'AIFM No Reporting Flag', AIFMNoReportingFlag_value])
 
-    AIFMIdentifierLEI_value = '213800UUU8A1Z4WJ8L67'
     AIFMCompleteDescription = SubElement(AIFMRecordInfo, 'AIFMCompleteDescription')
     AIFMIdentifier = SubElement(AIFMCompleteDescription, 'AIFMIdentifier')
+    AIFMIdentifierLEI_value = '213800UUU8A1Z4WJ8L67'
     AIFMIdentifierLEI = SubElement(AIFMIdentifier, 'AIFMIdentifierLEI')
     AIFMIdentifierLEI.text = AIFMIdentifierLEI_value
-    table_main.append(['LEI', AIFMIdentifierLEI_value])
+    table_main.append(['22', 'LEI', AIFMIdentifierLEI_value])
 
     html += list_to_html_table(table_main, 'Header and Description')
 
@@ -126,12 +129,12 @@ def create_aifm():
         AggregatedValueAmount.text = AggregatedValueAmount_value
 
         table_top_markets.append([Ranking_value, MarketCode_value, AggregatedValueAmount_value])
-    html += list_to_html_table(table_top_markets, 'Five Principal Markets')
-
+    html += list_to_html_table(table_top_markets, 'Five Principal Markets (N26-29)')
 
     # 5 Biggest AIFM Assets
     table_top_assets = [['Rank', 'SubAsset Type', 'Aggr Value Eur']]
     AIFMPrincipalInstruments = SubElement(AIFMCompleteDescription, 'AIFMPrincipalInstruments')
+    # TODO make sure we should include the FX trades
     my_sql = f"""((SELECT subasset_label,subasset_code,abs(sum(mkt_value_usd))/{EURUSD_RATE} as aggr_value FROM anandaprod.position T1 
                  JOIN Product T2 on T1.product_id=T2.id
                  JOIN aifmd T4 on T4.id=T2.aifmd_exposure_id
@@ -160,8 +163,7 @@ def create_aifm():
         AggregatedValueAmount.text = AggregatedValueAmount_value
         table_top_assets.append([Ranking_value, SubAssetType_label, AggregatedValueAmount_value])
 
-    html += list_to_html_table(table_top_assets, 'Five Principal Instruments')
-
+    html += list_to_html_table(table_top_assets, 'Five Principal Instruments (N30-32)')
 
     table_AUM = [['Field', 'Value']]
     aum_usd = str(int(AUM_ALTO_USD + AUM_NEUTRAL_USD))
@@ -182,11 +184,12 @@ def create_aifm():
     table_AUM.append(["AUM USD", aum_usd])
     table_AUM.append(["AUM EUR", aum_eur])
     table_AUM.append(["FX EUR Rate", FXEURRate_value])
-    html += list_to_html_table(table_AUM, 'AUM')
+    html += list_to_html_table(table_AUM, 'AUM (N33-38)')
 
     output = prettify(root)
 
-    with open("AIFM.xml", "w") as f:
+    xml_filename = "AIFM.xml"
+    with open(xml_filename, "w") as f:
         f.write(output)
 
-    simple_email(f"AIFM Report {quarter} {year}", '', 'olivier@ananda-am.com', html)
+    simple_email(f"AIFM Report {quarter} {year}", '', 'olivier@ananda-am.com', html, xml_filename)

@@ -1,10 +1,13 @@
 from datetime import date
 from xml.etree import ElementTree
 from xml.dom import minidom
-from models import config_class
+from models import config_class, session, Product
 from email.message import EmailMessage
+from email.mime.base import MIMEBase
+from email import encoders
 import smtplib
 
+EXPI_MONTH = ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z']
 
 def previous_quarter(ref):
     if ref.month < 4:
@@ -24,7 +27,7 @@ def prettify(elem):
     return reparsed.toprettyxml(indent="  ")
 
 
-def simple_email(subject, body, ml, html=None):
+def simple_email(subject, body, ml, html=None, filename=''):
 
     mail = config_class.MAIL_USERNAME
     password = config_class.MAIL_PASSWORD
@@ -36,6 +39,14 @@ def simple_email(subject, body, ml, html=None):
     msg.set_content(body)
     if html:
         msg.add_alternative(html, subtype='html')
+
+    if filename != '':
+        part = MIMEBase('application', "octet-stream")
+        part.set_payload(open(filename, "rb").read())
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+        msg.attach(part)
+
 
     with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
         smtp.login(mail, password)
@@ -63,3 +74,19 @@ def list_to_html_table(my_lists, title=''):
 
     html += "</tbody></table><br/>"
     return html
+
+
+
+def find_active_contract(ticker, my_date):
+
+    product_db = session.query(Product).all()
+    month = int(my_date.strftime("%m"))
+    month_letter = EXPI_MONTH[month - 1]
+    year = my_date.year % 10
+
+    active_ticker = ticker.replace("1", f'{month_letter}{year}')
+    products = [prod for prod in product_db if prod.ticker == active_ticker]
+    if products:
+        return products[0]
+    else:
+        return None

@@ -605,7 +605,7 @@ def create_aif(my_fund):
 
     html += list_to_html_table(table_investor, 'Investors Concentration (N118-120)')
 
-    html += f'<br/><H2>24.2 for {my_fund}<H2>'
+    html += f'<br/><H2>24.2 for {my_fund}<H2>' #
 
     output = prettify(root)
     print(output)

@@ -80,6 +80,8 @@ class ParentBroker(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(length=10), nullable=False)
     long_name = Column(String(length=45), nullable=False)
+    legal_name = Column(String(100))
+    lei = Column(String(100))
 
 
 class OmsBroker(Base):
@@ -176,6 +178,12 @@ class ParentFund(Base):
     __tablename__ = 'parent_fund'
     id = Column(Integer, primary_key=True)
     name = Column(String(length=45))
+    legal_name = Column(String(45))
+    lei = Column(String(45))
+    fca_code = Column(String(45))
+    inception_date = Column(Date())
+    share_classes = relationship('ShareClass', lazy=True)
+    brokers = relationship('ParentBroker', secondary='parent_fund_broker')
 
 
 class Fund(Base):
@@ -248,7 +256,7 @@ class Product(Base):
     multiplier = Column(Float)
     aifmd_exposure_id = Column(Integer)
     aifmd_turnover_id = Column(Integer)
-
+    mic = Column(String(length=4))
 
     def __repr__(self):
         return f"<Product(ticker='{self.ticker}', name='{self.name}', prod_type='{self.prod_type}')>"
@@ -262,6 +270,10 @@ class Security(Base):
     isin = Column(String(length=12))
     asset_type = Column(String(length=20))
     generic_future = Column(String(length=20))
+    expiry_type = Column(String(length=20))
+    expi_country_id = Column(Integer)
+    roll_reminder = Column(Integer)
+    expi_months = Column(String(length=20))
 
     def __repr__(self):
         return f"<Product(name='{self.name}', asset_type='{self.asset_type}')>"
@@ -464,6 +476,30 @@ class Locate(Base):
     fee = Column(Float)
     response_time = Column(Date, default=datetime.utcnow)
     file_name = Column(String(100))
+
+
+class ShareClass(Base):
+    __tablename__ = 'share_class'
+    id = Column(Integer, primary_key=True)
+    parent_fund_id = Column(ForeignKey('parent_fund.id'))
+    parent_fund = relationship('ParentFund')
+    name = Column(String(45))
+    isin = Column(String(45))
+
+
+class ParentFundBroker(Base):
+    __tablename__ = 'parent_fund_broker'
+    id = Column(Integer(), primary_key=True)
+    parent_fund_id = Column(Integer(), ForeignKey('parent_fund.id'))
+    parent_broker_id = Column(Integer(), ForeignKey('parent_broker.id'))
+
+
+class NameValue(Base):
+    __tablename__ = 'name_value'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(45))
+    my_value = Column(String(45))
+
 
 def copy_trade(trade):
     amended_trade = Trade(

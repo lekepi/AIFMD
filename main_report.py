@@ -11,9 +11,7 @@ from create_AIF import create_aif
 # AIFMD_REPORTING_DataTypes_V1.2.xsd: structure of the XML Document
 
 if __name__ == '__main__':
-    # create_aifm()
+    create_aifm()
     create_aif('ALTO')
     create_aif('NEUTRAL')
-
-
 

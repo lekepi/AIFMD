@@ -1,7 +1,7 @@
 from datetime import date, datetime
-from models import engine
+from models import engine, session, NameValue
 from utils import previous_quarter
-from xml.etree.ElementTree import Element, SubElement, Comment
+from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree
 import pandas as pd
 from utils import prettify, simple_email, list_to_html_table
 from manual_data import EURUSD_RATE, AUM_ALTO_USD, AUM_NEUTRAL_USD
@@ -11,12 +11,31 @@ from manual_data import EURUSD_RATE, AUM_ALTO_USD, AUM_NEUTRAL_USD
 
 def create_aifm():
 
-    today = date.today()
-    quarter, start_date, end_date = previous_quarter(today)
+    my_date = date.today()
+    # my_date = date(2022, 1, 1)
+
+    quarter, start_date, end_date = previous_quarter(my_date)
     year = start_date.year
     start_date_str = start_date.strftime('%Y-%m-%d')
     end_date_str = end_date.strftime('%Y-%m-%d')
     now_str = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
+
+    inv_manager_data = session.query(NameValue).filter(NameValue.name.startswith('im_')).order_by(NameValue.name.desc()).all()
+    AIFMName_value = [val.my_value for val in inv_manager_data if val.name == 'im_name'][0]
+    AIFMNationalCode_value = [val.my_value for val in inv_manager_data if val.name == 'im_fca_code'][0]
+    AIFMIdentifierLEI_value = [val.my_value for val in inv_manager_data if val.name == 'im_lei'][0]
+
+    my_sql = f"""SELECT T2.ticker,T2.isin,T2.name,macro_code,macro_label,asset_label,asset_code,subasset_label,
+                    subasset_code,round(abs(mkt_value_usd),0) as notional_usd,
+                    if(mkt_value_usd>0,'L','S') as side,T2.prod_type,T2.mic,T4.continent,T1.parent_fund_id FROM position T1 
+                    JOIN Product T2 on T1.product_id=T2.id JOIN exchange T3 on T2.exchange_id=T3.id
+                    JOIN country T4 on T3.country_id=T4.id JOIN aifmd T5 on T5.id=T2.aifmd_exposure_id
+                    WHERE T1.entry_date='{end_date}' and parent_fund_id in (1,3,5) order by round(abs(mkt_value_usd),0) desc"""
+    df_aggr = pd.read_sql(my_sql, con=engine)
+    total_usd = df_aggr['notional_usd'].sum()
+    AUM_USD = int(total_usd)
+
+    tree = ElementTree("tree")
 
     root = Element('AIFMReportingInfo', {'CreationDateAndTime': f'{now_str}',
                                          'Version': '1.2',
@@ -72,12 +91,10 @@ def create_aifm():
     AIFMJurisdiction.text = AIFMJurisdiction_value
     table_main.append(['17', 'Jurisdiction', AIFMJurisdiction_value])
 
-    AIFMNationalCode_value = '924813'
     AIFMNationalCode = SubElement(AIFMRecordInfo, 'AIFMNationalCode')
     AIFMNationalCode.text = AIFMNationalCode_value
     table_main.append(['18', 'National Code', AIFMNationalCode_value])
 
-    AIFMName_value = 'Ananda Asset Management Limited'
     AIFMName = SubElement(AIFMRecordInfo, 'AIFMName')
     AIFMName.text = AIFMName_value
     table_main.append(['19', 'Name', AIFMName_value])
@@ -94,7 +111,6 @@ def create_aifm():
 
     AIFMCompleteDescription = SubElement(AIFMRecordInfo, 'AIFMCompleteDescription')
     AIFMIdentifier = SubElement(AIFMCompleteDescription, 'AIFMIdentifier')
-    AIFMIdentifierLEI_value = '213800UUU8A1Z4WJ8L67'
     AIFMIdentifierLEI = SubElement(AIFMIdentifier, 'AIFMIdentifierLEI')
     AIFMIdentifierLEI.text = AIFMIdentifierLEI_value
     table_main.append(['22', 'LEI', AIFMIdentifierLEI_value])
@@ -104,17 +120,18 @@ def create_aifm():
     # 5 biggest markets (take only listed, not OTC)
     table_top_markets = [['Rank', 'Code', 'Aggr Value Eur']]
     AIFMPrincipalMarkets = SubElement(AIFMCompleteDescription, 'AIFMPrincipalMarkets')
-    AIFMFivePrincipalMarket = SubElement(AIFMPrincipalMarkets, 'AIFMFivePrincipalMarket')
 
-    my_sql = f"""SELECT mic,abs(sum(mkt_value_usd))/{EURUSD_RATE} as aggr_value FROM anandaprod.position T1 
+    # Aggregated Value
+    my_sql = f"""SELECT mic,sum(round(abs(mkt_value_usd),0))/{EURUSD_RATE} as aggr_value FROM position T1 
                  JOIN Product T2 on T1.product_id=T2.id
                  WHERE T1.entry_date='{end_date}' 
                  and parent_fund_id in (1,3)
-                 group by mic order by abs(sum(mkt_value_usd)) desc LIMIT 5;"""
+                 group by mic order by sum(round(abs(mkt_value_usd),0))/{EURUSD_RATE} desc LIMIT 5;"""
 
     df = pd.read_sql(my_sql, con=engine)
 
     for index, row in df.iterrows():
+        AIFMFivePrincipalMarket = SubElement(AIFMPrincipalMarkets, 'AIFMFivePrincipalMarket')
         Ranking_value = str(index + 1)
         Ranking = SubElement(AIFMFivePrincipalMarket, 'Ranking')
         Ranking.text = Ranking_value
@@ -132,10 +149,12 @@ def create_aifm():
     html += list_to_html_table(table_top_markets, 'Five Principal Markets (N26-29)')
 
     # 5 Biggest AIFM Assets
-    table_top_assets = [['Rank', 'SubAsset Type', 'Aggr Value Eur']]
+    table_top_assets = [['Rank', 'SubAsset Type Code', 'SubAsset Type Label', 'Aggr Value Eur']]
     AIFMPrincipalInstruments = SubElement(AIFMCompleteDescription, 'AIFMPrincipalInstruments')
-    # TODO make sure we should include the FX trades
-    my_sql = f"""((SELECT subasset_label,subasset_code,abs(sum(mkt_value_usd))/{EURUSD_RATE} as aggr_value FROM anandaprod.position T1 
+
+    ###################################### Commented
+    # TODO FX trades?
+    my_sql = f"""((SELECT subasset_label,subasset_code,sum(abs(mkt_value_usd))/{EURUSD_RATE} as aggr_value FROM position T1
                  JOIN Product T2 on T1.product_id=T2.id
                  JOIN aifmd T4 on T4.id=T2.aifmd_exposure_id
                  WHERE T1.entry_date='{end_date}' 
@@ -147,9 +166,23 @@ def create_aifm():
                  WHERE T1.entry_date='{end_date}' and prod_type='FX Forward'
                  GROUP BY subasset_label)) ORDER BY aggr_value desc LIMIT 5;"""
 
-    df = pd.read_sql(my_sql, con=engine)
+    my_sql = f"""SELECT subasset_label,subasset_code,sum(round(abs(mkt_value_usd),0))/{EURUSD_RATE} as aggr_value FROM position T1
+                 JOIN Product T2 on T1.product_id=T2.id
+                 JOIN aifmd T4 on T4.id=T2.aifmd_exposure_id
+                 WHERE T1.entry_date='{end_date}' 
+                 and parent_fund_id in (1,3,5)
+                 group by subasset_label order by sum(round(abs(mkt_value_usd),0))/{EURUSD_RATE} desc"""
 
-    for index, row in df.iterrows():
+    df = pd.read_sql(my_sql, con=engine)
+    ######################################################
+
+    df_big_assets = df_aggr.groupby(['subasset_label', 'subasset_code'], as_index=False)[['notional_usd']].sum()
+
+    df_big_assets.sort_values(by='notional_usd', ascending=False, inplace=True)
+    df_big_assets = df_big_assets[:5]
+    df_big_assets = df_big_assets.reset_index()
+
+    for index, row in df_big_assets.iterrows():
         AIFMPrincipalInstrument = SubElement(AIFMPrincipalInstruments, 'AIFMPrincipalInstrument')
         Ranking_value = str(index + 1)
         Ranking = SubElement(AIFMPrincipalInstrument, 'Ranking')
@@ -158,23 +191,23 @@ def create_aifm():
         SubAssetType_label = row['subasset_label']
         SubAssetType = SubElement(AIFMPrincipalInstrument, 'SubAssetType')
         SubAssetType.text = SubAssetType_value
-        AggregatedValueAmount_value = str(int(row['aggr_value']))
+        AggregatedValueAmount_value = str(int(row['notional_usd']/EURUSD_RATE))
         AggregatedValueAmount = SubElement(AIFMPrincipalInstrument, 'AggregatedValueAmount')
         AggregatedValueAmount.text = AggregatedValueAmount_value
-        table_top_assets.append([Ranking_value, SubAssetType_label, AggregatedValueAmount_value])
+        table_top_assets.append([Ranking_value, SubAssetType_value, SubAssetType_label, AggregatedValueAmount_value])
 
     html += list_to_html_table(table_top_assets, 'Five Principal Instruments (N30-32)')
 
     table_AUM = [['Field', 'Value']]
-    aum_usd = str(int(AUM_ALTO_USD + AUM_NEUTRAL_USD))
-    aum_eur = str(int((AUM_ALTO_USD + AUM_NEUTRAL_USD) / EURUSD_RATE))
+    aum_usd = str(int(AUM_USD))
+    aum_eur = str(int(AUM_USD / EURUSD_RATE))
     AUMAmountInEuro = SubElement(AIFMCompleteDescription, 'AUMAmountInEuro')
     AUMAmountInEuro.text = aum_eur
     AIFMBaseCurrencyDescription = SubElement(AIFMCompleteDescription, 'AIFMBaseCurrencyDescription')
     BaseCurrency = SubElement(AIFMBaseCurrencyDescription, 'BaseCurrency')
     BaseCurrency.text = 'USD'
     AUMAmountInBaseCurrency = SubElement(AIFMBaseCurrencyDescription, 'AUMAmountInBaseCurrency')
-    AUMAmountInBaseCurrency.text = aum_usd
+    AUMAmountInBaseCurrency.text = str(aum_usd)
     FXEURReferenceRateType = SubElement(AIFMBaseCurrencyDescription, 'FXEURReferenceRateType')
     FXEURReferenceRateType.text = 'ECB'
     FXEURRate_value = str(EURUSD_RATE)
@@ -189,7 +222,10 @@ def create_aifm():
     output = prettify(root)
 
     xml_filename = "AIFM.xml"
-    with open(xml_filename, "w") as f:
-        f.write(output)
+    # with open(xml_filename, "w") as f:
+    #    f.write(output)
+
+    tree._setroot(root)
+    tree.write(xml_filename, encoding="UTF-8", xml_declaration=True)
 
     simple_email(f"AIFM Report {quarter} {year}", '', 'olivier@ananda-am.com', html, xml_filename)

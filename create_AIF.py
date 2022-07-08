@@ -1,32 +1,27 @@
 from datetime import date, datetime
 from utils import previous_quarter, simple_email
 from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree
-from utils import prettify, list_to_html_table, find_active_contract, get_asset_list
-from manual_data import EURUSD_RATE, AUM_ALTO_USD, AUM_NEUTRAL_USD, \
-    NAV_ALTO_USD, NAV_NEUTRAL_USD, MainBeneficialOwnersRate_alto, MainBeneficialOwnersRate_neutral, \
-    AnnualInvestmentReturnRate_alto, AnnualInvestmentReturnRate_neutral, \
-    AllCounterpartyCollateralCash_alto, AllCounterpartyCollateralCash_neutral, \
-    UnencumberedCash_alto, UnencumberedCash_neutral, GrossInvestmentReturnsRate_alto, GrossInvestmentReturnsRate_neutral, \
-    NetInvestmentReturnsRate_alto, NetInvestmentReturnsRate_neutral, NAVChangeRate_alto, NAVChangeRate_neutral, \
-    Subscription_alto, Subscription_neutral, Redemption_alto, Redemption_neutral, StressTestsResultArticle15_alto, \
-    StressTestsResultArticle15_neutral, StressTestsResultArticle16_alto, StressTestsResultArticle16_neutral, \
-    ExchangedTradedDerivativesExposureValue_alto, ExchangedTradedDerivativesExposureValue_neutral, \
-    OTCDerivativesAmount_alto, OTCDerivativesAmount_neutral, GrossMethodRate_alto, GrossMethodRate_neutral, \
-    CommitmentMethodRate_alto, CommitmentMethodRate_neutral, ShortPositionBorrowedSecuritiesValue_alto, \
-    ShortPositionBorrowedSecuritiesValue_neutral, LeverageAmount_GS, LeverageAmount_MS, LeverageAmount_UBS
+from utils import prettify, list_to_html_table, find_active_contract, get_asset_list, get_investor_activity
+from manual_data import EURUSD_RATE, MainBeneficialOwnersRate_alto, MainBeneficialOwnersRate_neutral, \
+    AnnualInvestmentReturnRate_alto, AnnualInvestmentReturnRate_neutral, GrossInvestmentReturnsRate_alto, \
+    GrossInvestmentReturnsRate_neutral, NetInvestmentReturnsRate_alto, NetInvestmentReturnsRate_neutral, \
+    NAVChangeRate_alto, NAVChangeRate_neutral, Subscription_alto, Subscription_neutral, Redemption_alto, \
+    Redemption_neutral, StressTestsResultArticle15_alto, \
+    StressTestsResultArticle15_neutral, StressTestsResultArticle16_alto, StressTestsResultArticle16_neutral
+
 import pandas as pd
 from models import engine, session, ParentFund, ParentBroker, Margin, ShareClass
 
+
+security_country_list = ['United States', 'Canada', 'Switzerland']
 
 month_by_quarter = {'Q1': ['January', 'February', 'March'],
                     'Q2': ['April', 'May', 'June'],
                     'Q3': ['July', 'August', 'September'],
                     'Q4': ['October', 'November', 'December']}
 
-
 alto_fund = session.query(ParentFund).filter(ParentFund.name == 'Alto').first()
 neutral_fund = session.query(ParentFund).filter(ParentFund.name == 'Neutral').first()
-
 
 alto_dict = {'AIF National Code': alto_fund.fca_code,
              'AIF Name': alto_fund.legal_name,
@@ -45,15 +40,14 @@ alto_share_classes = [[sc.name, sc.isin] for sc in session.query(ShareClass).
 neutral_share_classes = [[sc.name, sc.isin] for sc in session.query(ShareClass).
     filter(ShareClass.parent_fund_id == 3).all()]
 
-alto_pbs = [['Goldman Sachs International', 'W22LROWP2IHZNBB6K528', LeverageAmount_GS],
-            ['MORGAN STANLEY & CO. INTERNATIONAL PLC', '4PQUHN3JPFGFNF3BB653', LeverageAmount_MS]]
-neutral_pbs = [['UBS AG London Branch', 'BFM8T61CT2L1QCEMIK50', LeverageAmount_UBS]]
+alto_pbs = [[brok.name, brok.legal_name, brok.lei] for brok in alto_fund.brokers]
+neutral_pbs = [[brok.name, brok.legal_name, brok.lei] for brok in neutral_fund.brokers]
 
 
 def create_aif(my_fund):
 
     my_date = date.today()
-    # my_date = date(2022, 1, 1)
+    # my_date = date(2022, 4, 1)
     quarter, start_date, end_date = previous_quarter(my_date)
     month_list = month_by_quarter[quarter]
 
@@ -84,66 +78,49 @@ def create_aif(my_fund):
     else:
         ubs_margin = Margin(account_value=0, margin_requirement=0)
 
+    Subscription_value, Redemption_value = get_investor_activity(my_fund, start_date, end_date)
+
     if my_fund == 'ALTO':
         LastReportingFlag_value = 'false'
         aif_dict = alto_dict
         share_classes = alto_share_classes
         pbs = alto_pbs
-        # AUM_USD = AUM_ALTO_USD
-        # NAV_USD = NAV_ALTO_USD
         fund_id_list = '(1,5)'
         MainBeneficialOwnersRate_value = str(MainBeneficialOwnersRate_alto)
         AnnualInvestmentReturnRate_value = str(AnnualInvestmentReturnRate_alto)
-        # AllCounterpartyCollateralCash_value = str(AllCounterpartyCollateralCash_alto)
-        AllCounterpartyCollateralCash_value = str(int(gs_asset[1] + ms_asset[1]))
-        AllCounterpartyCollateralSecurities_value = str(int(gs_asset[2] + ms_asset[2]))
-        # UnencumberedCash_value = str(UnencumberedCash_alto)
+        AllCounterpartyCollateralCash_value = str(int(gs_asset[1] + ms_asset[1] + gs_asset[2] + ms_asset[2]))  # pb_name, cash, stock, cfd, money_market
         UnencumberedCash_value = str(int(gs_margin.account_value - gs_margin.margin_requirement + ms_margin.account_value - ms_margin.margin_requirement + gs_asset[4]))
         GrossInvestmentReturnsRate_value = GrossInvestmentReturnsRate_alto
         NetInvestmentReturnsRate_value = NetInvestmentReturnsRate_alto
         NAVChangeRate_value = NAVChangeRate_alto
-        Subscription_value = Subscription_alto
-        Redemption_value = Redemption_alto
+        # Subscription_value = Subscription_alto
+        # Redemption_value = Redemption_alto
         StressTestsResultArticle15_value = StressTestsResultArticle15_alto
         StressTestsResultArticle16_value = StressTestsResultArticle16_alto
-        # ExchangedTradedDerivativesExposureValue_value = str(ExchangedTradedDerivativesExposureValue_alto)
-        OTCDerivativesAmount_value = str(OTCDerivativesAmount_alto)
-        # ShortPositionBorrowedSecuritiesValue_value = str(ShortPositionBorrowedSecuritiesValue_alto)
-        GrossMethodRate_value = str(GrossMethodRate_alto)
-        CommitmentMethodRate_value = str(CommitmentMethodRate_alto)
+
         Investment_strategy = ['EQTY_LGBS', 'Equity: Long Bias']
     elif my_fund == 'NEUTRAL':
         LastReportingFlag_value = 'true'
         aif_dict = neutral_dict
         share_classes = neutral_share_classes
         pbs = neutral_pbs
-        # AUM_USD = AUM_NEUTRAL_USD
-        # NAV_USD = NAV_NEUTRAL_USD
         fund_id_list = '(3)'
         MainBeneficialOwnersRate_value = str(MainBeneficialOwnersRate_neutral)
         AnnualInvestmentReturnRate_value = str(AnnualInvestmentReturnRate_neutral)
-        # AllCounterpartyCollateralCash_value = str(AllCounterpartyCollateralCash_neutral)
-        AllCounterpartyCollateralCash_value = str(int(ubs_asset[1]))
-        AllCounterpartyCollateralSecurities_value = str(int(ubs_asset[2]))
-        # UnencumberedCash_value = str(UnencumberedCash_neutral)
+        AllCounterpartyCollateralCash_value = str(int(ubs_asset[1] + ubs_asset[2]))  # pb_name, cash, stock, cfd, money_market
         UnencumberedCash_value = str(int(ubs_margin.account_value - ubs_margin.margin_requirement))
-        Investment_strategy = ['EQTY_MTNL', 'Equity: Market neutral']
+        Investment_strategy = ['EQTY_LGBS', 'Equity: Long Bias']
         GrossInvestmentReturnsRate_value = GrossInvestmentReturnsRate_neutral
         NetInvestmentReturnsRate_value = NetInvestmentReturnsRate_neutral
         NAVChangeRate_value = NAVChangeRate_neutral
-        Subscription_value = Subscription_neutral
-        Redemption_value = Redemption_neutral
+        # Subscription_value = Subscription_neutral
+        # Redemption_value = Redemption_neutral
         StressTestsResultArticle15_value = StressTestsResultArticle15_neutral
         StressTestsResultArticle16_value = StressTestsResultArticle16_neutral
-        # ExchangedTradedDerivativesExposureValue_value = str(ExchangedTradedDerivativesExposureValue_neutral)
-        OTCDerivativesAmount_value = str(OTCDerivativesAmount_neutral)
-        # ShortPositionBorrowedSecuritiesValue_value = str(ShortPositionBorrowedSecuritiesValue_neutral)
-        GrossMethodRate_value = str(GrossMethodRate_neutral)
-        CommitmentMethodRate_value = str(CommitmentMethodRate_neutral)
 
-    my_sql = f"""SELECT T2.ticker,T2.isin,T2.name,macro_code,macro_label,asset_label,asset_code,subasset_label,
-                    subasset_code,round(abs(mkt_value_usd),0) as notional_usd,
-                    if(mkt_value_usd>0,'L','S') as side,T2.prod_type,T2.mic,T4.continent FROM position T1 
+    my_sql = f"""SELECT T2.ticker,if(T2.isin is Null,'NA',T2.isin) as isin,T2.name,macro_code,macro_label,asset_label,asset_code,subasset_label,
+                    subasset_code,round(abs(mkt_value_usd),0) as notional_usd, if(mkt_value_usd>0,'L','S') as side,T2.prod_type,T2.mic,
+                    T4.continent,T4.name as country FROM position T1 
                     JOIN Product T2 on T1.product_id=T2.id JOIN exchange T3 on T2.exchange_id=T3.id
                     JOIN country T4 on T3.country_id=T4.id JOIN aifmd T5 on T5.id=T2.aifmd_exposure_id
                     WHERE T1.entry_date='{end_date}' and parent_fund_id in {fund_id_list} order by round(abs(mkt_value_usd),0) desc"""
@@ -155,10 +132,11 @@ def create_aif(my_fund):
     tree = ElementTree("tree")
 
     root = Element('AIFReportingInfo', {'CreationDateAndTime': f'{now_str}',
-                                         'Version': '1.2',
+                                         'Version': '2.0',
                                          'ReportingMemberState': 'GB',
                                          'xsi:noNamespaceSchemaLocation': 'AIFMD_DATMAN_V1.2.xsd',
                                          'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance'})
+
     comment = Comment(f'AIF Report {my_fund}')
     root.append(comment)
     table_main = [['N', 'Description', 'Value']]
@@ -187,10 +165,6 @@ def create_aif(my_fund):
     ReportingPeriodYear.text = str(year)
     table_main.append(['9', 'Reporting Period Year', str(year)])
 
-    # <AIFReportingObligationChangeFrequencyCode> Optional
-    # <AIFReportingObligationChangeContentsCode> Optional
-    # <AIFReportingObligationChangeQuarter> Forbidden if both above not there
-
     LastReportingFlag = SubElement(AIFRecordInfo, 'LastReportingFlag')
     LastReportingFlag.text = LastReportingFlag_value
     table_main.append(['13', 'Last Reporting Flag', LastReportingFlag_value])
@@ -202,7 +176,7 @@ def create_aif(my_fund):
         QuestionNumber = SubElement(Assumption, 'QuestionNumber')
         QuestionNumber.text = "48"
         AssumptionDescription = SubElement(Assumption, 'AssumptionDescription')
-        AssumptionDescription.text = "AIF has been closed"
+        AssumptionDescription.text = "AIF has been liquidated"
 
     AIFMNationalCode_value = '924813'
     AIFMNationalCode = SubElement(AIFRecordInfo, 'AIFMNationalCode')
@@ -219,10 +193,10 @@ def create_aif(my_fund):
     AIFName.text = AIFName_value
     table_main.append(['18', 'Name', AIFName_value])
 
-    AIFEEAFlag_value = 'false'
-    AIFEEAFlag = SubElement(AIFRecordInfo, 'AIFEEAFlag')
-    AIFEEAFlag.text = AIFEEAFlag_value
-    table_main.append(['19', 'AIF EEA Flag', AIFEEAFlag_value])
+    # AIFEEAFlag_value = 'false'
+    # AIFEEAFlag = SubElement(AIFRecordInfo, 'AIFEEAFlag')
+    # AIFEEAFlag.text = AIFEEAFlag_value
+    # table_main.append(['19', 'AIF EEA Flag', AIFEEAFlag_value])
 
     # https://www.esma.europa.eu/document/tables-8-9-10-annex-2-esma-guidelines-aifmd-reporting-obligation-revised
     # Annex II - Table 9.
@@ -298,11 +272,11 @@ def create_aif(my_fund):
     for pb in pbs:
         PrimeBrokerIdentification = SubElement(PrimeBrokers, 'PrimeBrokerIdentification')
 
-        EntityName_value = pb[0]
+        EntityName_value = pb[1]
         EntityName = SubElement(PrimeBrokerIdentification, 'EntityName')
         EntityName.text = EntityName_value
 
-        EntityIdentificationLEI_value = pb[1]
+        EntityIdentificationLEI_value = pb[2]
         EntityIdentificationLEI = SubElement(PrimeBrokerIdentification, 'EntityIdentificationLEI')
         EntityIdentificationLEI.text = EntityIdentificationLEI_value
 
@@ -338,7 +312,8 @@ def create_aif(my_fund):
     # AIFNetAssetValue_value = str(NAV_USD)
     my_sql = f"""SELECT round(sum(mkt_value_usd),0) as nav FROM position WHERE entry_date='{end_date}' and parent_fund_id in {fund_id_list}"""
     df_nav = pd.read_sql(my_sql, con=engine)
-    AIFNetAssetValue_value = str(int((df_nav['nav'].sum())))
+    NAV_USD = int(df_nav['nav'].sum())
+    AIFNetAssetValue_value = str(NAV_USD)
     AIFNetAssetValue = SubElement(AIFDescription, 'AIFNetAssetValue')
     AIFNetAssetValue.text = AIFNetAssetValue_value
     table_from_base_cncy.append(['53', 'AIF Net Asset Value', AIFNetAssetValue_value])
@@ -375,90 +350,97 @@ def create_aif(my_fund):
                                'Position Type', 'Position Value']]
     MainInstrumentsTraded = SubElement(AIFPrincipalInfo, 'MainInstrumentsTraded')
 
-    df_big_asset = df_aggr[:5]
+    df_main_instrument = df_aggr.groupby(['macro_label', 'macro_code', 'subasset_label', 'subasset_code',
+                                          'side', 'ticker', 'prod_type', 'isin', 'name'], as_index=False)[
+        ['notional_usd']].sum()
 
-    for index, row in df_big_asset.iterrows():
-        ticker = row['ticker']
-        prod_type = row['prod_type']
-        isin = row['isin']
-        aii = ''
-        side = row['side']
-        notional_usd = row['notional_usd']
-        InstrumentName_value = row['name']
-        if prod_type == 'Future':
-            fut_product = find_active_contract(ticker, end_date)
-            if fut_product.isin:
-                isin = fut_product.isin
-            InstrumentName_value = fut_product.name
-        MainInstrumentTraded = SubElement(MainInstrumentsTraded, 'MainInstrumentTraded')
+    if not df_main_instrument.empty:
+        df_main_instrument.sort_values(by='notional_usd', ascending=False, inplace=True)
+        df_main_instrument = df_main_instrument.reset_index()
+        df_main_instrument = df_main_instrument[:5]
 
-        Ranking_value = str(index+1)
-        Ranking = SubElement(MainInstrumentTraded, 'Ranking')
-        Ranking.text = Ranking_value
+        for index, row in df_main_instrument.iterrows():
+            ticker = row['ticker']
+            prod_type = row['prod_type']
+            isin = row['isin']
+            aii = ''
+            side = row['side']
+            notional_usd = row['notional_usd']
+            InstrumentName_value = row['name']
+            if prod_type == 'Future':
+                fut_product = find_active_contract(ticker, end_date)
+                if fut_product.isin:
+                    isin = fut_product.isin
+                InstrumentName_value = fut_product.name
+            MainInstrumentTraded = SubElement(MainInstrumentsTraded, 'MainInstrumentTraded')
 
-        SubAssetType_value = row['subasset_code']
-        SubAssetType_label = row['subasset_label']
-        SubAssetType = SubElement(MainInstrumentTraded, 'SubAssetType')
-        SubAssetType.text = SubAssetType_value
+            Ranking_value = str(index+1)
+            Ranking = SubElement(MainInstrumentTraded, 'Ranking')
+            Ranking.text = Ranking_value
 
-        if isin:
-            InstrumentCodeType_value = 'ISIN'
-        else:
-            InstrumentCodeType_value = 'AII'
-        InstrumentCodeType = SubElement(MainInstrumentTraded, 'InstrumentCodeType')
-        InstrumentCodeType.text = InstrumentCodeType_value
+            SubAssetType_value = row['subasset_code']
+            SubAssetType_label = row['subasset_label']
+            SubAssetType = SubElement(MainInstrumentTraded, 'SubAssetType')
+            SubAssetType.text = SubAssetType_value
 
-        InstrumentName = SubElement(MainInstrumentTraded, 'InstrumentName')
-        InstrumentName.text = InstrumentName_value
+            if isin != 'NA':
+                InstrumentCodeType_value = 'ISIN'
+            else:
+                InstrumentCodeType_value = 'AII'
+            InstrumentCodeType = SubElement(MainInstrumentTraded, 'InstrumentCodeType')
+            InstrumentCodeType.text = InstrumentCodeType_value
 
-        if isin:
-            ISINInstrumentIdentification = SubElement(MainInstrumentTraded, 'ISINInstrumentIdentification')
-            ISINInstrumentIdentification.text = isin
-        else:
-            if fut_product:
-                AIIExchangeCode_value = fut_product.mic
-                AIIProductCode_value = fut_product.name.split(" ")[0]
-                AIIDerivativeType_value = "F"
-                AIIPutCallIdentifier_value = "F"
-                AIIExpiryDate_value = str(fut_product.expiry)
-                AIIStrikePrice_value = "0"
-                aii = f"""{AIIExchangeCode_value} {AIIProductCode_value} {AIIDerivativeType_value} 
-                           {AIIPutCallIdentifier_value} {AIIExpiryDate_value} {AIIStrikePrice_value}"""
+            InstrumentName = SubElement(MainInstrumentTraded, 'InstrumentName')
+            InstrumentName.text = InstrumentName_value
 
-            AIIInstrumentIdentification = SubElement(MainInstrumentTraded, 'AIIInstrumentIdentification')
-            AIIExchangeCode = SubElement(AIIInstrumentIdentification, 'AIIExchangeCode')
-            AIIExchangeCode.text = AIIExchangeCode_value
+            if isin != 'NA':
+                ISINInstrumentIdentification = SubElement(MainInstrumentTraded, 'ISINInstrumentIdentification')
+                ISINInstrumentIdentification.text = isin
+            else:
+                if fut_product:
+                    AIIExchangeCode_value = fut_product.mic
+                    AIIProductCode_value = fut_product.name.split(" ")[0]
+                    AIIDerivativeType_value = "F"
+                    AIIPutCallIdentifier_value = "F"
+                    AIIExpiryDate_value = str(fut_product.expiry)
+                    AIIStrikePrice_value = "0"
+                    aii = f"""{AIIExchangeCode_value} {AIIProductCode_value} {AIIDerivativeType_value} 
+                               {AIIPutCallIdentifier_value} {AIIExpiryDate_value} {AIIStrikePrice_value}"""
 
-            AIIProductCode = SubElement(AIIInstrumentIdentification, 'AIIProductCode')
-            AIIProductCode.text = AIIProductCode_value
+                AIIInstrumentIdentification = SubElement(MainInstrumentTraded, 'AIIInstrumentIdentification')
+                AIIExchangeCode = SubElement(AIIInstrumentIdentification, 'AIIExchangeCode')
+                AIIExchangeCode.text = AIIExchangeCode_value
 
-            AIIDerivativeType = SubElement(AIIInstrumentIdentification, 'AIIDerivativeType')
-            AIIDerivativeType.text = AIIDerivativeType_value
+                AIIProductCode = SubElement(AIIInstrumentIdentification, 'AIIProductCode')
+                AIIProductCode.text = AIIProductCode_value
 
-            AIIPutCallIdentifier = SubElement(AIIInstrumentIdentification, 'AIIPutCallIdentifier')
-            AIIPutCallIdentifier.text = AIIPutCallIdentifier_value
+                AIIDerivativeType = SubElement(AIIInstrumentIdentification, 'AIIDerivativeType')
+                AIIDerivativeType.text = AIIDerivativeType_value
 
-            AIIExpiryDate = SubElement(AIIInstrumentIdentification, 'AIIExpiryDate')
-            AIIExpiryDate.text = AIIExpiryDate_value
+                AIIPutCallIdentifier = SubElement(AIIInstrumentIdentification, 'AIIPutCallIdentifier')
+                AIIPutCallIdentifier.text = AIIPutCallIdentifier_value
 
-            AIIStrikePrice = SubElement(AIIInstrumentIdentification, 'AIIStrikePrice')
-            AIIStrikePrice.text = AIIStrikePrice_value
+                AIIExpiryDate = SubElement(AIIInstrumentIdentification, 'AIIExpiryDate')
+                AIIExpiryDate.text = AIIExpiryDate_value
 
-        PositionType_value = side
+                AIIStrikePrice = SubElement(AIIInstrumentIdentification, 'AIIStrikePrice')
+                AIIStrikePrice.text = AIIStrikePrice_value
 
-        PositionType = SubElement(MainInstrumentTraded, 'PositionType')
-        PositionType.text = PositionType_value
+            PositionType_value = side
 
-        PositionValue_value = str(int(notional_usd))
-        PositionValue = SubElement(MainInstrumentTraded, 'PositionValue')
-        PositionValue.text = PositionValue_value
+            PositionType = SubElement(MainInstrumentTraded, 'PositionType')
+            PositionType.text = PositionType_value
 
-        table_main_instruments.append([Ranking_value, f'{SubAssetType_value}: {SubAssetType_label}',
-                                       InstrumentCodeType_value, InstrumentName_value, isin, aii,
-                                       PositionType_value, PositionValue_value])
+            PositionValue_value = str(int(notional_usd))
+            PositionValue = SubElement(MainInstrumentTraded, 'PositionValue')
+            PositionValue.text = PositionValue_value
+
+            table_main_instruments.append([Ranking_value, f'{SubAssetType_value}: {SubAssetType_label}',
+                                           InstrumentCodeType_value, InstrumentName_value, isin, aii,
+                                           PositionType_value, PositionValue_value])
 
     # add missing rank
-    rows_num = len(df_big_asset.index)
+    rows_num = len(df_main_instrument.index)
     if rows_num < 5:
         for i in range(rows_num+1, 6):
             MainInstrumentTraded = SubElement(MainInstrumentsTraded, 'MainInstrumentTraded')
@@ -488,16 +470,16 @@ def create_aif(my_fund):
     df_geo = pd.read_sql(my_sql, con=engine)
     total_position = df_geo['aggr_value'].sum()
     AsiaNAVPosition = df_geo.loc[df_geo['continent'] == 'APAC', 'aggr_value'].sum()
-    EuropeNAVPosition = df_geo.loc[(df_geo['country'] == 'United Kingdom') | (df_geo['country'] == 'Switzerland'), 'aggr_value'].sum()
-    EEANAVPosition = df_geo.loc[(df_geo['continent'] == 'EMEA') & (df_geo['country'] != 'United Kingdom') &
-                                (df_geo['country'] != 'Switzerland'), 'aggr_value'].sum()
+    UKNAVPosition = df_geo.loc[df_geo['country'] == 'United Kingdom', 'aggr_value'].sum()
+    EuropeNonUKNAVPosition = df_geo.loc[(df_geo['continent'] == 'EMEA') &
+                                        (df_geo['country'] != 'United Kingdom'), 'aggr_value'].sum()
     NorthAmericaNAVPosition = df_geo.loc[df_geo['continent'] == 'AMER', 'aggr_value'].sum()
 
     if total_position == 0:
         AfricaNAVRate_value = 0
         AsiaPacificNAVRate_value = 0
-        EuropeNAVRate_value = 0
-        EEANAVRate_value = 0
+        UKNAVRate_value = 0
+        EuropeNonUKNAVRate_value = 0
         MiddleEastNAVRate_value = 0
         NorthAmericaNAVRate_value = 100
         SouthAmericaNAVRate_value = 0
@@ -509,11 +491,11 @@ def create_aif(my_fund):
         else:
             AsiaPacificNAVRate_value = 0
 
-        EuropeNAVRate_value = round(round(EuropeNAVPosition / total_position, 4) * 100, 2)
-        EEANAVRate_value = round(round(EEANAVPosition / total_position, 4) * 100, 2)
+        UKNAVRate_value = round(round(UKNAVPosition / total_position, 4) * 100, 2)
+        EuropeNonUKNAVRate_value = round(round(EuropeNonUKNAVPosition / total_position, 4) * 100, 2)
         MiddleEastNAVRate_value = 0
         # NorthAmericaNAVRate_value = round(NorthAmericaNAVPosition / total_position, 4) * 100
-        NorthAmericaNAVRate_value = round(100 - EuropeNAVRate_value - EEANAVRate_value - AsiaPacificNAVRate_value, 2)
+        NorthAmericaNAVRate_value = round(100 - UKNAVRate_value - EuropeNonUKNAVRate_value - AsiaPacificNAVRate_value, 2)
         SouthAmericaNAVRate_value = 0
         SupraNationalNAVRate_value = 0
 
@@ -523,11 +505,11 @@ def create_aif(my_fund):
     AsiaPacificNAVRate = SubElement(NAVGeographicalFocus, 'AsiaPacificNAVRate')
     AsiaPacificNAVRate.text = str(AsiaPacificNAVRate_value)
 
-    EuropeNAVRate = SubElement(NAVGeographicalFocus, 'EuropeNAVRate')
-    EuropeNAVRate.text = str(EuropeNAVRate_value)
+    UKNAVRate = SubElement(NAVGeographicalFocus, 'UKNAVRate')
+    UKNAVRate.text = str(UKNAVRate_value)
 
-    EEANAVRate = SubElement(NAVGeographicalFocus, 'EEANAVRate')
-    EEANAVRate.text = str(EEANAVRate_value)
+    EuropeNonUKNAVRate = SubElement(NAVGeographicalFocus, 'EuropeNonUKNAVRate')
+    EuropeNonUKNAVRate.text = str(EuropeNonUKNAVRate_value)
 
     MiddleEastNAVRate = SubElement(NAVGeographicalFocus, 'MiddleEastNAVRate')
     MiddleEastNAVRate.text = str(MiddleEastNAVRate_value)
@@ -548,16 +530,16 @@ def create_aif(my_fund):
     df_geo = pd.read_sql(my_sql, con=engine, )
     total_position = df_geo['aggr_value'].sum()
     AsiaAUMPosition = df_geo.loc[df_geo['continent'] == 'APAC', 'aggr_value'].sum()
-    EuropeAUMPosition = df_geo.loc[(df_geo['country'] == 'United Kingdom') | (df_geo['country'] == 'Switzerland'), 'aggr_value'].sum()
-    EEAAUMPosition = df_geo.loc[(df_geo['continent'] == 'EMEA') & (df_geo['country'] != 'United Kingdom') &
-                                (df_geo['country'] != 'Switzerland'), 'aggr_value'].sum()
+    UKAUMPosition = df_geo.loc[df_geo['country'] == 'United Kingdom', 'aggr_value'].sum()
+    EuropeNonUKAUMPosition = df_geo.loc[(df_geo['continent'] == 'EMEA') &
+                                        (df_geo['country'] != 'United Kingdom'), 'aggr_value'].sum()
     NorthAmericaAUMPosition = df_geo.loc[df_geo['continent'] == 'AMER', 'aggr_value'].sum()
 
     if total_position == 0:
         AfricaAUMRate_value = 0
         AsiaPacificAUMRate_value = 0
-        EuropeAUMRate_value = 0
-        EEAAUMRate_value = 0
+        UKAUMRate_value = 0
+        EuropeNonUKAUMRate_value = 0
         MiddleEastAUMRate_value = 0
         NorthAmericaAUMRate_value = 100
         SouthAmericaAUMRate_value = 0
@@ -568,11 +550,11 @@ def create_aif(my_fund):
             AsiaPacificAUMRate_value = round(round(AsiaAUMPosition / total_position, 4) * 100, 2)
         else:
             AsiaPacificAUMRate_value = 0
-        EuropeAUMRate_value = round(round(EuropeAUMPosition / total_position, 4) * 100, 2)
-        EEAAUMRate_value = round(round(EEAAUMPosition / total_position, 4) * 100, 2)
+        UKAUMRate_value = round(round(UKAUMPosition / total_position, 4) * 100, 2)
+        EuropeNonUKAUMRate_value = round(round(EuropeNonUKAUMPosition / total_position, 4) * 100, 2)
         MiddleEastAUMRate_value = 0
         # NorthAmericaAUMRate_value = round(NorthAmericaAUMPosition / total_position, 4) * 100
-        NorthAmericaAUMRate_value = round(100 - EuropeAUMRate_value - EEAAUMRate_value - AsiaPacificAUMRate_value, 2)
+        NorthAmericaAUMRate_value = round(100 - UKAUMRate_value - EuropeNonUKAUMRate_value - AsiaPacificAUMRate_value, 2)
         SouthAmericaAUMRate_value = 0
         SupraNationalAUMRate_value = 0
 
@@ -584,11 +566,11 @@ def create_aif(my_fund):
     AsiaPacificAUMRate = SubElement(AUMGeographicalFocus, 'AsiaPacificAUMRate')
     AsiaPacificAUMRate.text = str(AsiaPacificAUMRate_value)
 
-    EuropeAUMRate = SubElement(AUMGeographicalFocus, 'EuropeAUMRate')
-    EuropeAUMRate.text = str(EuropeAUMRate_value)
+    UKAUMRate = SubElement(AUMGeographicalFocus, 'UKAUMRate')
+    UKAUMRate.text = str(UKAUMRate_value)
 
-    EEAAUMRate = SubElement(AUMGeographicalFocus, 'EEAAUMRate')
-    EEAAUMRate.text = str(EEAAUMRate_value)
+    EuropeNonUKAUMRate = SubElement(AUMGeographicalFocus, 'EuropeNonUKAUMRate')
+    EuropeNonUKAUMRate.text = str(EuropeNonUKAUMRate_value)
 
     MiddleEastAUMRate = SubElement(AUMGeographicalFocus, 'MiddleEastAUMRate')
     MiddleEastAUMRate.text = str(MiddleEastAUMRate_value)
@@ -604,8 +586,8 @@ def create_aif(my_fund):
 
     table_geo_focus.append(['Africa', str(AfricaNAVRate_value), str(AfricaAUMRate_value)])
     table_geo_focus.append(['Asia Pacific', str(AsiaPacificNAVRate_value), str(AsiaPacificAUMRate_value)])
-    table_geo_focus.append(['Europe', str(EuropeNAVRate_value), str(EuropeAUMRate_value)])
-    table_geo_focus.append(['EEA', str(EEANAVRate_value), str(EEAAUMRate_value)])
+    table_geo_focus.append(['Europe', str(UKNAVRate_value), str(UKAUMRate_value)])
+    table_geo_focus.append(['EEA', str(EuropeNonUKNAVRate_value), str(EuropeNonUKAUMRate_value)])
     table_geo_focus.append(['Middle East NAV Rate', str(MiddleEastNAVRate_value), str(MiddleEastAUMRate_value)])
     table_geo_focus.append(['North America NAV Rate', str(NorthAmericaNAVRate_value), str(NorthAmericaAUMRate_value)])
     table_geo_focus.append(['South America NAV Rate', str(SouthAmericaNAVRate_value), str(SouthAmericaAUMRate_value)])
@@ -614,6 +596,8 @@ def create_aif(my_fund):
     html += list_to_html_table(table_geo_focus, 'Geographical Breakdown (N78-93)')
 
     # 10 Principal Exposures (94-102)
+    # FCA Guidelines: Listed equities: Do not include in this category exposures obtained synthetically or through derivatives
+    # (instead include these under the ‘equity derivatives’ category).
     table_principal_exposure = [['ranking', 'Macro Type', 'Sub Asset Type', 'Position', 'Aggreg Value Amount', 'Aggreg Rate']]
     PrincipalExposures = SubElement(AIFPrincipalInfo, 'PrincipalExposures')
 
@@ -694,7 +678,7 @@ def create_aif(my_fund):
     PortfolioConcentrations = SubElement(MostImportantConcentration, 'PortfolioConcentrations')
 
     df_concentration = df_aggr.groupby(['asset_label', 'asset_code', 'mic', 'side'], as_index=False)[['notional_usd']].sum()
-    if not df_concentration.empty:  # TODO see if ok not to report
+    if not df_concentration.empty:
         df_concentration.sort_values(by='notional_usd', ascending=False, inplace=True)
         df_concentration = df_concentration[:5]
         df_concentration = df_concentration.reset_index()
@@ -833,7 +817,7 @@ def create_aif(my_fund):
     table_asset_type = [['SubAsset Description', 'SubAsset Code', 'Long', 'Short']]
 
     df_asset_expo = df_aggr.groupby(['subasset_label', 'subasset_code', 'side'], as_index=False)[['notional_usd']].sum()
-    if not df_asset_expo.empty:  # TODO see if ok not to report
+    if not df_asset_expo.empty:
         df_asset_expo.sort_values(by='notional_usd', ascending=False, inplace=True)
 
         df_asset_expo_long = df_asset_expo[df_asset_expo['side'] == 'L']
@@ -882,6 +866,9 @@ def create_aif(my_fund):
     html += list_to_html_table(table_asset_type, 'Individual Exposures (N121-124)')
 
     # Turnover
+    # https://www.esma.europa.eu/sites/default/files/library/2015/11/2011_379.pdf
+    # Please include synthetic exposures to single stocks (i.e. CFDs) in the ‘Listed Equities’ category. Other equity derivatives (i.e. single stock futures,
+    # options and equity swaps) should be included at Equity Derivatives category.
     AssetTypeTurnovers = SubElement(IndividualExposure, 'AssetTypeTurnovers')
     table_turnover = [['SubAsset Description', 'SubAsset Code', 'Market Value']]
 
@@ -966,47 +953,67 @@ def create_aif(my_fund):
     AnnualInvestmentReturnRate.text = AnnualInvestmentReturnRate_value
 
     table_risk_profile.append(['137', 'Annual Investment Return Rate', f'{AnnualInvestmentReturnRate_value}%'])
-    # 138-147: not reported, like Bainbridge TODO: check it is fine
+    # 138-147: not reported, like Bainbridge
 
-    #148-156 - TODO: Bainbridge report only Security, not derivative and find 71% of OTC ?!?
-
+    #148-156
     CounterpartyRiskProfile = SubElement(RiskProfile, 'CounterpartyRiskProfile')
     TradingClearingMechanism = SubElement(CounterpartyRiskProfile, 'TradingClearingMechanism')
     TradedSecurities = SubElement(TradingClearingMechanism, 'TradedSecurities')
 
-    RegulatedMarketRate_value = "100"
+    future_notional = int(df_aggr.loc[df_aggr['prod_type'] == 'Future', 'notional_usd'].sum())
+    cfd_notional = int(df_aggr.loc[(df_aggr['prod_type'] == 'Cash') &
+                                   (~df_aggr['country'].isin(security_country_list)), 'notional_usd'].sum())
+    cash_equity_notional = int(df_aggr.loc[(df_aggr['prod_type'] == 'Cash') &
+                               (df_aggr['country'].isin(security_country_list)), 'notional_usd'].sum())
+
+    if AUM_USD == 0:
+        RegulatedMarketRate_value_num = 0
+    else:
+        RegulatedMarketRate_value_num = round(100 * (future_notional+cash_equity_notional) / AUM_USD, 2)
+    RegulatedMarketRate_value = str(RegulatedMarketRate_value_num)
     RegulatedMarketRate = SubElement(TradedSecurities, 'RegulatedMarketRate')
     RegulatedMarketRate.text = RegulatedMarketRate_value
     table_risk_profile.append(['148', 'market value for securities traded on regulated exchanges', RegulatedMarketRate_value])
 
-    TradedDerivatives = SubElement(TradingClearingMechanism, 'TradedDerivatives')
+    OTCRate_value = str(100 - RegulatedMarketRate_value_num)
+    OTCRate = SubElement(TradedSecurities, 'OTCRate')
+    OTCRate.text = OTCRate_value
+    table_risk_profile.append(['149', 'market value for securities traded OTC', OTCRate_value])
 
-    RegulatedMarketRate_value = "100"
+    TradedDerivatives = SubElement(TradingClearingMechanism, 'TradedDerivatives')
+    if cfd_notional + future_notional == 0:
+        RegulatedMarketRate_value_num = 0
+    else:
+        RegulatedMarketRate_value_num = round((100 * future_notional / (cfd_notional + future_notional)), 2)
+    RegulatedMarketRate_value = str(RegulatedMarketRate_value_num)
     RegulatedMarketRate = SubElement(TradedDerivatives, 'RegulatedMarketRate')
     RegulatedMarketRate.text = RegulatedMarketRate_value
     table_risk_profile.append(['150', 'trade volumes for derivatives traded on regulated exchanges', RegulatedMarketRate_value])
 
+    OTCRate_value = str(100 - RegulatedMarketRate_value_num)
+    OTCRate = SubElement(TradedDerivatives, 'OTCRate')
+    OTCRate.text = OTCRate_value
+    table_risk_profile.append(['151', 'trade volumes for derivatives traded on OTC', OTCRate_value])
+
     ClearedDerivativesRate = SubElement(TradingClearingMechanism, 'ClearedDerivativesRate')
+    if cfd_notional + future_notional == 0:
+        CCPRate_value_num = 0
+    else:
+        CCPRate_value_num = round((100 * future_notional / (cfd_notional + future_notional)), 2)
+    CCPRate_value = str(CCPRate_value_num)
+    CCPRate = SubElement(ClearedDerivativesRate, 'CCPRate')
+    CCPRate.text = CCPRate_value
+    table_risk_profile.append(['152', 'trade volumes for derivatives cleared by CCP', CCPRate_value])
 
-    # CCP: Central Clearing Parties TODO Check
-    # CCPRate_value = "100"
-    # CCPRate = SubElement(ClearedDerivativesRate, 'CCPRate')
-    # CCPRate.text = CCPRate_value
-    # table_risk_profile.append(['152', 'Percentage of trade volumes for derivatives cleared by a CCP', CCPRate_value])
-
-    BilateralClearingRate_value = "100"
+    BilateralClearingRate_value = str(100 - CCPRate_value_num)
     BilateralClearingRate = SubElement(ClearedDerivativesRate, 'BilateralClearingRate')
     BilateralClearingRate.text = BilateralClearingRate_value
-    table_risk_profile.append(['153', 'Percentage of trade volumes for derivatives cleared bilaterally', BilateralClearingRate_value])
+    table_risk_profile.append(['153', 'trade volumes for derivatives cleared bilaterally', BilateralClearingRate_value])
 
     AllCounterpartyCollateral = SubElement(CounterpartyRiskProfile, 'AllCounterpartyCollateral')
     AllCounterpartyCollateralCash = SubElement(AllCounterpartyCollateral, 'AllCounterpartyCollateralCash')
     AllCounterpartyCollateralCash.text = AllCounterpartyCollateralCash_value
     table_risk_profile.append(['157', 'Collateral Cash amount posted to all counterparties', AllCounterpartyCollateralCash_value])
-
-    AllCounterpartyCollateralSecurities = SubElement(AllCounterpartyCollateral, 'AllCounterpartyCollateralSecurities')
-    AllCounterpartyCollateralSecurities.text = AllCounterpartyCollateralSecurities_value
-    table_risk_profile.append(['158', 'Collateral Securities amount posted to all counterparties', AllCounterpartyCollateralSecurities_value])
 
     html += list_to_html_table(table_risk_profile, 'Risk Profile (N137-159)')
 
@@ -1014,8 +1021,8 @@ def create_aif(my_fund):
     table_cpty = [['Ranking', 'Cpty exposure Flag', 'Name Cpty', 'LEI Cpty', 'NAV %']]
     FundToCounterpartyExposures = SubElement(CounterpartyRiskProfile, 'FundToCounterpartyExposures')
 
-    my_sql = f"""SELECT round(sum(mkt_value_usd*qty_gs/quantity),0) as GS,round(sum(mkt_value_usd*qty_ms/quantity),0) as MS,
-    round(sum(mkt_value_usd*qty_ubs/quantity),0) as UBS FROM position T1 
+    my_sql = f"""SELECT round(sum(abs(mkt_value_usd)*qty_gs/quantity),0) as GS,round(sum(abs(mkt_value_usd)*qty_ms/quantity),0) as MS,
+    round(sum(abs(mkt_value_usd)*qty_ubs/quantity),0) as UBS FROM position T1 
                  WHERE T1.entry_date='{end_date}' and parent_fund_id in {fund_id_list};"""
     df_cpty = pd.read_sql(my_sql, con=engine)
 
@@ -1238,10 +1245,17 @@ def create_aif(my_fund):
 
     FinancialInstrumentBorrowing = SubElement(AIFLeverageArticle242, 'FinancialInstrumentBorrowing')
 
-    my_sql =f"""SELECT sum(abs(mkt_value_usd)) as deriv_expo FROM position T1 JOIN product T2 on T1.product_id=T2.id
-               WHERE entry_date='{end_date}' and T2.prod_type='Future' and parent_fund_id in {fund_id_list};"""
-    df_deriv_expo = pd.read_sql(my_sql, con=engine)
-    ExchangedTradedDerivativesExposureValue_value = str(int(df_deriv_expo['deriv_expo'].sum()))
+    ExchangedTradedDerivativesExposureValue_value = str(int(df_aggr.loc[(df_aggr['prod_type'] == 'Future') &
+                                                                        (df_aggr['side'] == 'S'), 'notional_usd'].sum()))
+
+    OTCDerivativesAmount_value = str(int(df_aggr.loc[(df_aggr['prod_type'] == 'Cash') &
+                                                     (df_aggr['side'] == 'S') &
+                                                     (~df_aggr['country'].isin(security_country_list)), 'notional_usd'].sum()))
+
+    ShortPositionBorrowedSecuritiesValue_value = str(int(df_aggr.loc[(df_aggr['prod_type'] == 'Cash') &
+                                                                     (df_aggr['side'] == 'S') &
+                                                                     (df_aggr['country'].isin(security_country_list)), 'notional_usd'].sum()))
+
     ExchangedTradedDerivativesExposureValue = SubElement(FinancialInstrumentBorrowing, 'ExchangedTradedDerivativesExposureValue')
     ExchangedTradedDerivativesExposureValue.text = ExchangedTradedDerivativesExposureValue_value
     table_leverage.append(['287', 'Exchange traded derivatives exposure amount', ExchangedTradedDerivativesExposureValue_value])
@@ -1251,21 +1265,22 @@ def create_aif(my_fund):
     table_leverage.append(
         ['288', 'OTC derivatives exposure amount', OTCDerivativesAmount_value])
 
-    my_sql =f"""SELECT abs(sum(mkt_value_usd)) as short_usd FROM position T1 JOIN product T2 on T1.product_id=T2.id
-               WHERE entry_date='{end_date}' and T2.prod_type='Cash' and quantity<0 and parent_fund_id in {fund_id_list};"""
-    df_short = pd.read_sql(my_sql, con=engine)
-    ShortPositionBorrowedSecuritiesValue_value = str(int(df_short['short_usd'].sum()))
     ShortPositionBorrowedSecuritiesValue = SubElement(AIFLeverageArticle242, 'ShortPositionBorrowedSecuritiesValue')
     ShortPositionBorrowedSecuritiesValue.text = ShortPositionBorrowedSecuritiesValue_value
     table_leverage.append(
         ['289', 'Short Position Borrowed Securities Value', ShortPositionBorrowedSecuritiesValue_value])
 
+    if NAV_USD == 0:
+        GrossMethodRate_value = 0
+    else:
+        GrossMethodRate_value = str(round(AUM_USD / NAV_USD, 2))
     LeverageAIF = SubElement(AIFLeverageArticle242, 'LeverageAIF')
     GrossMethodRate = SubElement(LeverageAIF, 'GrossMethodRate')
     GrossMethodRate.text = GrossMethodRate_value
     table_leverage.append(
         ['294', 'Leverage under gross method', GrossMethodRate_value])
 
+    CommitmentMethodRate_value = GrossMethodRate_value  # TODO Change the calculation method
     CommitmentMethodRate = SubElement(LeverageAIF, 'CommitmentMethodRate')
     CommitmentMethodRate.text = CommitmentMethodRate_value
     table_leverage.append(
@@ -1277,7 +1292,26 @@ def create_aif(my_fund):
     table_borrowing = [['Ranking', 'Borrowing Flag', 'Source Name', 'Source LEI', 'Leverage Amount']]
 
     AIFLeverageArticle244 = SubElement(AIFLeverageInfo, 'AIFLeverageArticle24-4')
+
+    my_sql = f"""SELECT round(sum(abs(mkt_value_usd)*qty_gs/quantity),0) as GS,round(sum(abs(mkt_value_usd)*qty_ms/quantity),0) as MS,
+    round(sum(abs(mkt_value_usd)*qty_ubs/quantity),0) as UBS FROM position T1 
+                 WHERE T1.entry_date='{end_date}' and parent_fund_id in {fund_id_list} and quantity<0;"""
+    df_cpty = pd.read_sql(my_sql, con=engine)
+
+    LeverageAmount_GS = df_cpty['GS'].sum()
+    LeverageAmount_MS = df_cpty['MS'].sum()
+    LeverageAmount_UBS = df_cpty['UBS'].sum()
+
+
     for index, pb in enumerate(pbs):
+
+        if pb[0] == 'GS':
+            LeverageAmount = LeverageAmount_GS
+        elif pb[0] == 'MS':
+            LeverageAmount = LeverageAmount_MS
+        elif pb[0] == 'UBS':
+            LeverageAmount = LeverageAmount_UBS
+
         BorrowingSource = SubElement(AIFLeverageArticle244, 'BorrowingSource')
         Ranking_value = str(index + 1)
         Ranking = SubElement(BorrowingSource, 'Ranking')
@@ -1288,15 +1322,15 @@ def create_aif(my_fund):
         BorrowingSourceFlag.text = BorrowingSourceFlag_value
 
         SourceIdentification = SubElement(BorrowingSource, 'SourceIdentification')
-        EntityName_value = pb[0]
+        EntityName_value = pb[1]
         EntityName = SubElement(SourceIdentification, 'EntityName')
         EntityName.text = EntityName_value
 
         EntityIdentificationLEI = SubElement(SourceIdentification, 'EntityIdentificationLEI')
-        EntityIdentificationLEI_value = pb[1]
+        EntityIdentificationLEI_value = pb[2]
         EntityIdentificationLEI.text = EntityIdentificationLEI_value
 
-        LeverageAmount_value = str(pb[2])
+        LeverageAmount_value = str(int(LeverageAmount))
         LeverageAmount = SubElement(BorrowingSource, 'LeverageAmount')
         LeverageAmount.text = LeverageAmount_value
 

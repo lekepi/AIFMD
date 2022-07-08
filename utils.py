@@ -1,13 +1,12 @@
 from datetime import date
 from xml.etree import ElementTree
 from xml.dom import minidom
-from models import config_class, session, Product
+from models import config_class, session, Product, engine, PositionNav, InvestorActivity
 from email.message import EmailMessage
 from email.mime.base import MIMEBase
 from email import encoders
 import smtplib
 import pandas as pd
-from models import engine, PositionNav
 
 EXPI_MONTH = ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z']
 
@@ -178,3 +177,51 @@ def get_asset_list(my_date):
     ubs_asset = ['UBS', ubs_cash, ubs_stock, ubs_cfd, 0]
 
     return gs_asset, ms_asset, ubs_asset
+
+
+def get_investor_activity(my_fund, start_date, end_date):
+
+    if my_fund == "ALTO":
+        long_fund = "Ananda Long Term Opportunities Fund"
+    elif my_fund == "NEUTRAL":
+        long_fund = "Ananda Market Neutral Fund"
+
+    my_sql = f"""SELECT T1.id,fund_name,activity,effective_date,amount,T2.code as cncy
+                 FROM investor_activity T1 LEFT JOIN currency T2 on T1.cncy_id=T2.id
+                 WHERE T1.effective_date>='{start_date}' and T1.effective_date<='{end_date}';"""
+    df = pd.read_sql(my_sql, con=engine, parse_dates=['effective_date'])
+    df = df[df['fund_name'].str.startswith(long_fund)]
+
+    df.loc[df['activity'].str.contains('Addition'), 'activity'] = 'Subscription'
+    df.loc[df['activity'].str.contains('Subscription'), 'activity'] = 'Subscription'
+    df.loc[df['activity'].str.contains('Redemption'), 'activity'] = 'Redemption'
+
+    df['month'] = pd.DatetimeIndex(df['effective_date']).month
+
+    my_sql = f"""SELECT month(entry_date) as month,T2.code as cncy, rate from currency_history T1 JOIN currency T2 on T1.currency_id=T2.id where entry_date in 
+     (SELECT distinct(entry_date) FROM currency_history INNER JOIN (
+        SELECT MAX(entry_date) AS maxdate FROM currency_history
+        GROUP BY YEAR(entry_date), MONTH(entry_date)
+    ) x ON currency_history.entry_date = maxdate WHERE entry_date>='{start_date}' and entry_date<='{end_date}')"""
+    df_cncy = pd.read_sql(my_sql, con=engine)
+
+    df = pd.merge(df, df_cncy)
+    df['amount_usd'] = df['amount'] / df['rate']
+
+    df_group = df.groupby(['activity', 'month']).agg({'amount_usd': 'sum'}).\
+        sort_values(by=['activity', 'month']).reset_index()
+
+    subscription_list = [0, 0, 0]
+    redemption_list = [0, 0, 0]
+
+    start_month = start_date.month
+
+    for month in range(start_month, start_month + 3):
+        subscription = df_group.loc[(df_group['month'] == month) & (df_group['activity'] == 'Subscription'), 'amount_usd'].values
+        if subscription:
+            subscription_list[month - start_month] = abs(int(subscription[0]))
+        redemption = df_group.loc[(df_group['month'] == month) & (df_group['activity'] == 'Redemption'), 'amount_usd'].values
+        if redemption:
+            redemption_list[month - start_month] = abs(int(redemption[0]))
+
+    return subscription_list, redemption_list

@@ -182,7 +182,7 @@ class ParentFund(Base):
     lei = Column(String(45))
     fca_code = Column(String(45))
     inception_date = Column(Date())
-    share_classes = relationship('ShareClass', lazy=True)
+    share_classes = relationship('ShareClass', lazy=True, viewonly=True)
     brokers = relationship('ParentBroker', secondary='parent_fund_broker')
 
 

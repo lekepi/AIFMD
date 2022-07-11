@@ -78,7 +78,7 @@ def create_aif(my_fund):
     else:
         ubs_margin = Margin(account_value=0, margin_requirement=0)
 
-    Subscription_value, Redemption_value = get_investor_activity(my_fund, start_date, end_date)
+    # Subscription_value, Redemption_value = get_investor_activity(my_fund, start_date, end_date)
 
     if my_fund == 'ALTO':
         LastReportingFlag_value = 'false'
@@ -93,8 +93,8 @@ def create_aif(my_fund):
         GrossInvestmentReturnsRate_value = GrossInvestmentReturnsRate_alto
         NetInvestmentReturnsRate_value = NetInvestmentReturnsRate_alto
         NAVChangeRate_value = NAVChangeRate_alto
-        # Subscription_value = Subscription_alto
-        # Redemption_value = Redemption_alto
+        Subscription_value = Subscription_alto
+        Redemption_value = Redemption_alto
         StressTestsResultArticle15_value = StressTestsResultArticle15_alto
         StressTestsResultArticle16_value = StressTestsResultArticle16_alto
 
@@ -113,18 +113,34 @@ def create_aif(my_fund):
         GrossInvestmentReturnsRate_value = GrossInvestmentReturnsRate_neutral
         NetInvestmentReturnsRate_value = NetInvestmentReturnsRate_neutral
         NAVChangeRate_value = NAVChangeRate_neutral
-        # Subscription_value = Subscription_neutral
-        # Redemption_value = Redemption_neutral
+        Subscription_value = Subscription_neutral
+        Redemption_value = Redemption_neutral
         StressTestsResultArticle15_value = StressTestsResultArticle15_neutral
         StressTestsResultArticle16_value = StressTestsResultArticle16_neutral
 
+
     my_sql = f"""SELECT T2.ticker,if(T2.isin is Null,'NA',T2.isin) as isin,T2.name,macro_code,macro_label,asset_label,asset_code,subasset_label,
-                    subasset_code,round(abs(mkt_value_usd),0) as notional_usd, if(mkt_value_usd>0,'L','S') as side,T2.prod_type,T2.mic,
+                    subasset_code,round(abs(mkt_value_usd),0) as notional_usd, if(mkt_value_usd>=0,'L','S') as side,T2.prod_type,T2.mic,
                     T4.continent,T4.name as country FROM position T1 
                     JOIN Product T2 on T1.product_id=T2.id JOIN exchange T3 on T2.exchange_id=T3.id
                     JOIN country T4 on T3.country_id=T4.id JOIN aifmd T5 on T5.id=T2.aifmd_exposure_id
                     WHERE T1.entry_date='{end_date}' and parent_fund_id in {fund_id_list} order by round(abs(mkt_value_usd),0) desc"""
-    df_aggr = pd.read_sql(my_sql, con=engine)
+
+    df_temp = pd.read_sql(my_sql, con=engine)
+
+    df_aggr_cfd = df_temp.loc[~(df_temp['country'].isin(security_country_list)) & (df_temp['prod_type'] == 'Cash')]
+    df_aggr_cfd['macro_code'] = 'DER'
+    df_aggr_cfd['macro_label'] = 'Derivatives'
+    df_aggr_cfd['asset_code'] = 'DER_EQD'
+    df_aggr_cfd['asset_label'] = 'Equity derivatives'
+    df_aggr_cfd['subasset_code'] = 'DER_EQD_OTHD'
+    df_aggr_cfd['subasset_label'] = 'Other equity derivatives'
+    df_aggr_cfd['mic'] = 'XXXX'
+
+    df_aggr_other = df_temp.loc[(df_temp['country'].isin(security_country_list)) | (df_temp['prod_type'] != 'Cash')]
+    df_aggr = pd.merge(df_aggr_cfd, df_aggr_other, how='outer')
+
+    df_aggr.to_excel(fr'H:\Compliance\AIFMD\KEY FILES\Historic\All Positions AIF {my_fund} {end_date_str}.xlsx')
 
     total_usd = df_aggr['notional_usd'].sum()
     AUM_USD = int(total_usd)
@@ -173,10 +189,10 @@ def create_aif(my_fund):
     if my_fund == 'NEUTRAL' and AUM_USD == 0:
         Assumptions = SubElement(AIFRecordInfo, 'Assumptions')
         Assumption = SubElement(Assumptions, 'Assumption')
-        QuestionNumber = SubElement(Assumption, 'QuestionNumber')
-        QuestionNumber.text = "48"
-        AssumptionDescription = SubElement(Assumption, 'AssumptionDescription')
-        AssumptionDescription.text = "AIF has been liquidated"
+        FCAFieldReference = SubElement(Assumption, 'FCAFieldReference')
+        FCAFieldReference.text = "48"
+        AssumptionDetails = SubElement(Assumption, 'AssumptionDetails')
+        AssumptionDetails.text = "AIF has been liquidated"
 
     AIFMNationalCode_value = '924813'
     AIFMNationalCode = SubElement(AIFRecordInfo, 'AIFMNationalCode')
@@ -236,9 +252,7 @@ def create_aif(my_fund):
 
     html += list_to_html_table(table_main, 'Header and Description')
 
-
     table_share_class = [['National Code', 'Isin', 'Name']]
-
     ShareClassIdentification = SubElement(AIFPrincipalInfo, 'ShareClassIdentification')
 
     for share_class in share_classes:
@@ -356,8 +370,8 @@ def create_aif(my_fund):
 
     if not df_main_instrument.empty:
         df_main_instrument.sort_values(by='notional_usd', ascending=False, inplace=True)
-        df_main_instrument = df_main_instrument.reset_index()
         df_main_instrument = df_main_instrument[:5]
+        df_main_instrument = df_main_instrument.reset_index()
 
         for index, row in df_main_instrument.iterrows():
             ticker = row['ticker']
@@ -586,12 +600,12 @@ def create_aif(my_fund):
 
     table_geo_focus.append(['Africa', str(AfricaNAVRate_value), str(AfricaAUMRate_value)])
     table_geo_focus.append(['Asia Pacific', str(AsiaPacificNAVRate_value), str(AsiaPacificAUMRate_value)])
-    table_geo_focus.append(['Europe', str(UKNAVRate_value), str(UKAUMRate_value)])
-    table_geo_focus.append(['EEA', str(EuropeNonUKNAVRate_value), str(EuropeNonUKAUMRate_value)])
-    table_geo_focus.append(['Middle East NAV Rate', str(MiddleEastNAVRate_value), str(MiddleEastAUMRate_value)])
-    table_geo_focus.append(['North America NAV Rate', str(NorthAmericaNAVRate_value), str(NorthAmericaAUMRate_value)])
-    table_geo_focus.append(['South America NAV Rate', str(SouthAmericaNAVRate_value), str(SouthAmericaAUMRate_value)])
-    table_geo_focus.append(['Supra National NAV Rate', str(SupraNationalNAVRate_value), str(SupraNationalAUMRate_value)])
+    table_geo_focus.append(['UK', str(UKNAVRate_value), str(UKAUMRate_value)])
+    table_geo_focus.append(['Europe', str(EuropeNonUKNAVRate_value), str(EuropeNonUKAUMRate_value)])
+    table_geo_focus.append(['Middle East', str(MiddleEastNAVRate_value), str(MiddleEastAUMRate_value)])
+    table_geo_focus.append(['North America', str(NorthAmericaNAVRate_value), str(NorthAmericaAUMRate_value)])
+    table_geo_focus.append(['South America', str(SouthAmericaNAVRate_value), str(SouthAmericaAUMRate_value)])
+    table_geo_focus.append(['Supra National', str(SupraNationalNAVRate_value), str(SupraNationalAUMRate_value)])
 
     html += list_to_html_table(table_geo_focus, 'Geographical Breakdown (N78-93)')
 
@@ -705,11 +719,17 @@ def create_aif(my_fund):
 
             MarketIdentification = SubElement(PortfolioConcentration, 'MarketIdentification')
             MarketCodeType = SubElement(MarketIdentification, 'MarketCodeType')
-            MarketCodeType.text = 'MIC'
 
-            MarketCode_value = mic
-            MarketCode = SubElement(MarketIdentification, 'MarketCode')
-            MarketCode.text = MarketCode_value
+            if mic == 'XXXX':
+                MarketCodeType_value = 'OTC'
+                MarketCodeType.text = MarketCodeType_value
+                MarketCode_value = 'NA'
+            else:
+                MarketCodeType_value = 'MIC'
+                MarketCodeType.text = MarketCodeType_value
+                MarketCode_value = mic
+                MarketCode = SubElement(MarketIdentification, 'MarketCode')
+                MarketCode.text = MarketCode_value
 
             AggregatedValueAmount_value = str(int(notional_usd))
             AggregatedValueAmount = SubElement(PortfolioConcentration, 'AggregatedValueAmount')
@@ -719,7 +739,7 @@ def create_aif(my_fund):
             AggregatedValueRate = SubElement(PortfolioConcentration, 'AggregatedValueRate')
             AggregatedValueRate.text = AggregatedValueRate_value
 
-            table_portfolio_concentration.append([Ranking_value, f'{AssetType_value[0]}: {AssetType_value[1]}', MarketCode_value,
+            table_portfolio_concentration.append([Ranking_value, f'{AssetType_value[0]}: {AssetType_value[1]}', f'{MarketCodeType_value} - {MarketCode_value}',
                                                   PositionType_value, AggregatedValueAmount_value, AggregatedValueRate_value])
 
     # add missing rank
@@ -744,31 +764,38 @@ def create_aif(my_fund):
     table_top_markets = [['Rank', 'Code', 'Aggr Value']]
     AIFPrincipalMarkets = SubElement(MostImportantConcentration, 'AIFPrincipalMarkets')
 
-    my_sql = f"""SELECT mic,sum(abs(mkt_value_usd)) as aggr_value FROM position T1 
-                 JOIN Product T2 on T1.product_id=T2.id WHERE T1.entry_date='{end_date}' 
-                 and parent_fund_id in {fund_id_list} group by mic order by sum(abs(mkt_value_usd)) desc LIMIT 3;"""
+    df_top_markets = df_aggr.groupby(['mic'], as_index=False)[['notional_usd']].sum()
+    if not df_top_markets.empty:
+        df_top_markets.sort_values(by='notional_usd', ascending=False, inplace=True)
+        df_top_markets = df_top_markets[:3]
+        df_top_markets = df_top_markets.reset_index()
 
-    df_top_markets = pd.read_sql(my_sql, con=engine)
+        for index, row in df_top_markets.iterrows():
+            mic = row['mic']
+            AIFPrincipalMarket = SubElement(AIFPrincipalMarkets, 'AIFPrincipalMarket')
+            Ranking_value = str(index + 1)
+            Ranking = SubElement(AIFPrincipalMarket, 'Ranking')
+            Ranking.text = Ranking_value
 
-    for index, row in df_top_markets.iterrows():
-        AIFPrincipalMarket = SubElement(AIFPrincipalMarkets, 'AIFPrincipalMarket')
-        Ranking_value = str(index + 1)
-        Ranking = SubElement(AIFPrincipalMarket, 'Ranking')
-        Ranking.text = Ranking_value
+            MarketIdentification = SubElement(AIFPrincipalMarket, 'MarketIdentification')
+            MarketCodeType = SubElement(MarketIdentification, 'MarketCodeType')
 
-        MarketIdentification = SubElement(AIFPrincipalMarket, 'MarketIdentification')
-        MarketCodeType = SubElement(MarketIdentification, 'MarketCodeType')
-        MarketCodeType.text = 'MIC'
+            if mic == 'XXXX':
+                MarketCodeType_value = 'OTC'
+                MarketCodeType.text = MarketCodeType_value
+                MarketCode_value = 'NA'
+            else:
+                MarketCodeType_value = 'MIC'
+                MarketCodeType.text = MarketCodeType_value
+                MarketCode_value = mic
+                MarketCode = SubElement(MarketIdentification, 'MarketCode')
+                MarketCode.text = MarketCode_value
 
-        MarketCode_value = row['mic']
-        MarketCode = SubElement(MarketIdentification, 'MarketCode')
-        MarketCode.text = MarketCode_value
+            AggregatedValueAmount_value = str(int(row['notional_usd']))
+            AggregatedValueAmount = SubElement(AIFPrincipalMarket, 'AggregatedValueAmount')
+            AggregatedValueAmount.text = AggregatedValueAmount_value
 
-        AggregatedValueAmount_value = str(int(row['aggr_value']))
-        AggregatedValueAmount = SubElement(AIFPrincipalMarket, 'AggregatedValueAmount')
-        AggregatedValueAmount.text = AggregatedValueAmount_value
-
-        table_top_markets.append([Ranking_value, MarketCode_value, AggregatedValueAmount_value])
+            table_top_markets.append([Ranking_value, f'{MarketCodeType_value} - {MarketCode_value}', AggregatedValueAmount_value])
 
     # add missing rank
     rows_num = len(df_top_markets)
@@ -830,6 +857,7 @@ def create_aif(my_fund):
 
         df_asset_expo = pd.merge(df_asset_expo_long, df_asset_expo_short, how='outer')
         df_asset_expo = df_asset_expo.fillna(0)
+        df_asset_expo = df_asset_expo.reset_index()
 
         for index, row in df_asset_expo.iterrows():
             long = row['Long']
@@ -873,7 +901,7 @@ def create_aif(my_fund):
     table_turnover = [['SubAsset Description', 'SubAsset Code', 'Market Value']]
 
     my_sql = f"""SELECT T3.subasset_code,T3.subasset_label,round(sum(abs(T1.notional_usd)),0) as trade_usd from trade T1 JOIN product T2 on T1.product_id=T2.id
-                    JOIN aifmd T3 on T2.aifmd_turnover_id = T3.id WHERE trade_date>='{start_date}' and trade_date<='{end_date}' and T2.prod_type<>'Roll'
+                    JOIN aifmd T3 on T2.aifmd_turnover_id = T3.id WHERE trade_date>='{start_date}' and trade_date<='{end_date}' and T2.prod_type<>'Roll' and parent_fund_id in {fund_id_list}
                     GROUP BY T3.subasset_code,T3.subasset_label order by round(sum(abs(T1.notional_usd)),0) desc;"""
     df_turn_over = pd.read_sql(my_sql, con=engine)
 
@@ -1271,7 +1299,7 @@ def create_aif(my_fund):
         ['289', 'Short Position Borrowed Securities Value', ShortPositionBorrowedSecuritiesValue_value])
 
     if NAV_USD == 0:
-        GrossMethodRate_value = 0
+        GrossMethodRate_value = str(1)
     else:
         GrossMethodRate_value = str(round(AUM_USD / NAV_USD, 2))
     LeverageAIF = SubElement(AIFLeverageArticle242, 'LeverageAIF')
@@ -1280,7 +1308,7 @@ def create_aif(my_fund):
     table_leverage.append(
         ['294', 'Leverage under gross method', GrossMethodRate_value])
 
-    CommitmentMethodRate_value = GrossMethodRate_value  # TODO Change the calculation method
+    CommitmentMethodRate_value = GrossMethodRate_value  # Owen confirm that is fine to use the same method
     CommitmentMethodRate = SubElement(LeverageAIF, 'CommitmentMethodRate')
     CommitmentMethodRate.text = CommitmentMethodRate_value
     table_leverage.append(
@@ -1301,7 +1329,6 @@ def create_aif(my_fund):
     LeverageAmount_GS = df_cpty['GS'].sum()
     LeverageAmount_MS = df_cpty['MS'].sum()
     LeverageAmount_UBS = df_cpty['UBS'].sum()
-
 
     for index, pb in enumerate(pbs):
 

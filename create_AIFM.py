@@ -26,9 +26,9 @@ def create_aifm():
     AIFMNationalCode_value = [val.my_value for val in inv_manager_data if val.name == 'im_fca_code'][0]
     AIFMIdentifierLEI_value = [val.my_value for val in inv_manager_data if val.name == 'im_lei'][0]
 
-    my_sql = f"""SELECT T2.ticker,T2.isin,T2.name,macro_code,macro_label,asset_label,asset_code,subasset_label,
+    my_sql = f"""SELECT T2.ticker,if(T2.isin is Null,'NA',T2.isin) as isin,T2.name,macro_code,macro_label,asset_label,asset_code,subasset_label,
                     subasset_code,round(abs(mkt_value_usd),0) as notional_usd,
-                    if(mkt_value_usd>0,'L','S') as side,T2.prod_type,T2.mic,T4.name as country,T4.continent,T1.parent_fund_id FROM position T1 
+                    if(mkt_value_usd>=0,'L','S') as side,T2.prod_type,T2.mic,T4.name as country,T4.continent,T1.parent_fund_id FROM position T1 
                     JOIN Product T2 on T1.product_id=T2.id JOIN exchange T3 on T2.exchange_id=T3.id
                     JOIN country T4 on T3.country_id=T4.id JOIN aifmd T5 on T5.id=T2.aifmd_exposure_id
                     WHERE T1.entry_date='{end_date}' and parent_fund_id in (1,3,5) order by round(abs(mkt_value_usd),0) desc"""
@@ -45,6 +45,8 @@ def create_aifm():
 
     df_aggr_other = df_temp.loc[(df_temp['country'].isin(security_country_list)) | (df_temp['prod_type'] != 'Cash')]
     df_aggr = pd.merge(df_aggr_cfd, df_aggr_other, how='outer')
+
+    df_aggr.to_excel(fr'H:\Compliance\AIFMD\KEY FILES\Historic\All Positions AIFM {end_date_str}.xlsx')
 
     total_usd = df_aggr['notional_usd'].sum()
     AUM_USD = int(total_usd)
@@ -107,11 +109,6 @@ def create_aifm():
     AIFMName.text = AIFMName_value
     table_main.append(['19', 'Name', AIFMName_value])
 
-    AIFMEEAFlag_value = 'true'
-    AIFMEEAFlag = SubElement(AIFMRecordInfo, 'AIFMEEAFlag')
-    AIFMEEAFlag.text = AIFMEEAFlag_value
-    table_main.append(['20', 'AIFM EEA Flag', AIFMEEAFlag_value])
-
     AIFMNoReportingFlag_value = 'false'
     AIFMNoReportingFlag = SubElement(AIFMRecordInfo, 'AIFMNoReportingFlag')
     AIFMNoReportingFlag.text = AIFMNoReportingFlag_value
@@ -130,17 +127,9 @@ def create_aifm():
     AIFMPrincipalMarkets = SubElement(AIFMCompleteDescription, 'AIFMPrincipalMarkets')
 
     # Aggregated Value by Market
-    my_sql = f"""SELECT mic,sum(round(abs(mkt_value_usd),0))/{EURUSD_RATE} as aggr_value FROM position T1 
-                 JOIN Product T2 on T1.product_id=T2.id
-                 WHERE T1.entry_date='{end_date}' 
-                 and parent_fund_id in (1,3)
-                 group by mic order by sum(round(abs(mkt_value_usd),0))/{EURUSD_RATE} desc LIMIT 5;"""
-
-    df = pd.read_sql(my_sql, con=engine)
-
     df_market = df_aggr.groupby(['mic'], as_index=False)[['notional_usd']].sum()
     df_market.sort_values(by='notional_usd', ascending=False, inplace=True)
-    df_market = df_market[:4]
+    df_market = df_market[:5]
     df_market = df_market.reset_index()
 
     for index, row in df_market.iterrows():
@@ -151,7 +140,7 @@ def create_aifm():
         MarketIdentification = SubElement(AIFMFivePrincipalMarket, 'MarketIdentification')
         MarketCodeType = SubElement(MarketIdentification, 'MarketCodeType')
         if row['mic'] == 'XXXX':
-            MarketCodeType_value = 'XXX'
+            MarketCodeType_value = 'OTC'
             MarketCodeType.text = MarketCodeType_value
             MarketCode_value = 'NA'
         else:
@@ -188,7 +177,7 @@ def create_aifm():
 
     if not df_big_assets.empty:
         df_big_assets.sort_values(by='notional_usd', ascending=False, inplace=True)
-        df_big_assets = df_big_assets[:4]
+        df_big_assets = df_big_assets[:5]
         df_big_assets = df_big_assets.reset_index()
 
         for index, row in df_big_assets.iterrows():

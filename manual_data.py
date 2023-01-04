@@ -1,6 +1,6 @@
 from openpyxl import workbook, load_workbook
 
-FILE_DIR = 'H:\Compliance\AIFMD\KEY FILES\AIFMD Manual Data.xlsm'
+FILE_DIR = 'A:\Master File\Key - AIFMD Manual Data.xlsm'
 
 
 wb = load_workbook(FILE_DIR)
@@ -36,8 +36,8 @@ Subscription_alto = [round(ws['B15'].value, 0), round(ws['C15'].value, 0), round
 Subscription_neutral = [round(ws['B22'].value, 0), round(ws['C22'].value, 0), round(ws['D22'].value, 0)]
 
 # 267-278 Redemption amount in $ for the 3 month of the quarter (0 decimals)
-Redemption_alto = [round(ws['B16'].value, 0), round(ws['C16'].value, 0), round(ws['D16'].value, 0)]
-Redemption_neutral = [round(ws['B23'].value, 0), round(ws['C23'].value, 0), round(ws['D23'].value, 0)]
+Redemption_alto = [int(ws['B16'].value), int(ws['C16'].value), int(ws['D16'].value)]
+Redemption_neutral = [int(ws['B23'].value), int(ws['C23'].value), int(ws['D23'].value)]
 
 # 279 Results of stress tests performed in accordance with point(b) of Article 15(3)
 StressTestsResultArticle15_alto = ws['B26'].value

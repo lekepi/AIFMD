@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from models import engine, session, NameValue
 from utils import previous_quarter
 from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree
@@ -21,6 +21,10 @@ def create_aifm():
     end_date_str = end_date.strftime('%Y-%m-%d')
     now_str = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
 
+    end_date_pos = end_date
+    while end_date_pos.weekday() > 4:
+        end_date_pos -= timedelta(days=1)
+
     inv_manager_data = session.query(NameValue).filter(NameValue.name.startswith('im_')).order_by(NameValue.name.desc()).all()
     AIFMName_value = [val.my_value for val in inv_manager_data if val.name == 'im_name'][0]
     AIFMNationalCode_value = [val.my_value for val in inv_manager_data if val.name == 'im_fca_code'][0]
@@ -31,7 +35,7 @@ def create_aifm():
                     if(mkt_value_usd>=0,'L','S') as side,T2.prod_type,T2.mic,T4.name as country,T4.continent,T1.parent_fund_id FROM position T1 
                     JOIN Product T2 on T1.product_id=T2.id JOIN exchange T3 on T2.exchange_id=T3.id
                     JOIN country T4 on T3.country_id=T4.id JOIN aifmd T5 on T5.id=T2.aifmd_exposure_id
-                    WHERE T1.entry_date='{end_date}' and parent_fund_id in (1,3,5) order by round(abs(mkt_value_usd),0) desc"""
+                    WHERE T1.entry_date='{end_date_pos}' and parent_fund_id in (1,3,5) order by round(abs(mkt_value_usd),0) desc"""
     df_temp = pd.read_sql(my_sql, con=engine)
 
     df_aggr_cfd = df_temp.loc[~(df_temp['country'].isin(security_country_list)) & (df_temp['prod_type'] == 'Cash')]
@@ -56,11 +60,14 @@ def create_aifm():
     root = Element('AIFMReportingInfo', {'CreationDateAndTime': f'{now_str}',
                                          'Version': '2.0',
                                          'ReportingMemberState': 'GB',
-                                         'xsi:noNamespaceSchemaLocation': 'AIFMD_DATMAN_V1.2.xsd',
-                                         'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance'})
+                                         # 'xsi:noNamespaceSchemaLocation': 'AIFMD_DATMAN_V1.2.xsd',
+                                         # 'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+                                         'xmlns': 'urn:fsa-gov-uk:MER:AIF001:2'
+                                         }
+                   )
 
-    comment = Comment('AIFM Report')
-    root.append(comment)
+    # comment = Comment('AIFM Report')
+    # root.append(comment)
     table_main = [['N', 'Description', 'Value']]
     html = ''
     AIFMRecordInfo = SubElement(root, 'AIFMRecordInfo')
@@ -167,7 +174,7 @@ def create_aifm():
             table_top_markets.append([Ranking_value, 'NOT', ''])
 
 
-    html += list_to_html_table(table_top_markets, 'Five Principal Markets (N26-29)')
+    html += list_to_html_table(table_top_markets, 'Five Principal Markets (N26-29)', thousand=True)
 
     # 5 Biggest AIFM Assets
     table_top_assets = [['Rank', 'SubAsset Type Code', 'SubAsset Type Label', 'Aggr Value Eur']]
@@ -206,7 +213,7 @@ def create_aifm():
                 SubAssetType.text = SubAssetType_value
                 table_top_assets.append([Ranking_value, SubAssetType_value, '', ''])
 
-    html += list_to_html_table(table_top_assets, 'Five Principal Instruments (N30-32)')
+    html += list_to_html_table(table_top_assets, 'Five Principal Instruments (N30-32)', thousand=True)
 
     table_AUM = [['Field', 'Value']]
     aum_usd = str(int(AUM_USD))
@@ -227,7 +234,7 @@ def create_aifm():
     table_AUM.append(["AUM USD", aum_usd])
     table_AUM.append(["AUM EUR", aum_eur])
     table_AUM.append(["FX EUR Rate", FXEURRate_value])
-    html += list_to_html_table(table_AUM, 'AUM (N33-38)')
+    html += list_to_html_table(table_AUM, 'AUM (N33-38)', thousand=True)
 
     output = prettify(root)
 

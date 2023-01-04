@@ -11,6 +11,17 @@ import pandas as pd
 EXPI_MONTH = ['F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z']
 
 
+def is_number(s):
+    try:
+        if not s:
+            return False
+        else:
+            float(s)
+            return True
+    except ValueError:
+        return False
+
+
 def previous_quarter(ref):
     if ref.month < 4:
         return 'Q4', date(ref.year - 1, 10, 1), date(ref.year - 1, 12, 31)
@@ -54,7 +65,7 @@ def simple_email(subject, body, ml, html=None, filename=''):
         smtp.send_message(msg)
 
 
-def list_to_html_table(my_lists, title=''):
+def list_to_html_table(my_lists, title='', thousand=False):
 
     html = f'<h2>{title}</h2>'
     html += '''<table border="1" class="dataframe">
@@ -70,7 +81,14 @@ def list_to_html_table(my_lists, title=''):
         if index > 0:
             html += "<tr>"
             for element in my_list:
-                html += f"<td>{element}</td>"
+                if thousand and is_number(element):
+                    if float(element) > 10000:
+                        html_element = '{:,}'.format(int(element))
+                        html += f"<td>{html_element}</td>"
+                    else:
+                        html += f"<td>{element}</td>"
+                else:
+                    html += f"<td>{element}</td>"
             html += "</tr>"
 
     html += "</tbody></table><br/>"
@@ -100,6 +118,7 @@ def find_active_contract(ticker, my_date):
         return products[0]
     else:
         return None
+
 
 def find_active_contract_old(ticker, my_date):
 

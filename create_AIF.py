@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from utils import previous_quarter, simple_email
 from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree
 from utils import prettify, list_to_html_table, find_active_contract, get_asset_list, get_investor_activity
@@ -56,9 +56,13 @@ def create_aif(my_fund):
     now_str = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
     year = start_date.year
 
-    gs_asset, ms_asset, ubs_asset = get_asset_list(end_date)  # pb_name, cash, stock, cfd, money_market
+    end_date_pos = end_date
+    while end_date_pos.weekday() > 4:
+        end_date_pos -= timedelta(days=1)
 
-    all_margin = session.query(Margin).join(ParentBroker).filter(Margin.entry_date == end_date). \
+    gs_asset, ms_asset, ubs_asset = get_asset_list(end_date_pos)  # pb_name, cash, stock, cfd, money_market
+
+    all_margin = session.query(Margin).join(ParentBroker).filter(Margin.entry_date == end_date_pos). \
         order_by(ParentBroker.name.asc()).all()
     gs_margin_list = [m for m in all_margin if m.parent_broker.name == 'GS']
     if gs_margin_list:
@@ -78,7 +82,7 @@ def create_aif(my_fund):
     else:
         ubs_margin = Margin(account_value=0, margin_requirement=0)
 
-    # Subscription_value, Redemption_value = get_investor_activity(my_fund, start_date, end_date)
+    # Subscription_value, Redemption_value = get_investor_activity(my_fund, start_date, end_date_pos)
 
     if my_fund == 'ALTO':
         LastReportingFlag_value = 'false'
@@ -124,7 +128,7 @@ def create_aif(my_fund):
                     T4.continent,T4.name as country FROM position T1 
                     JOIN Product T2 on T1.product_id=T2.id JOIN exchange T3 on T2.exchange_id=T3.id
                     JOIN country T4 on T3.country_id=T4.id JOIN aifmd T5 on T5.id=T2.aifmd_exposure_id
-                    WHERE T1.entry_date='{end_date}' and parent_fund_id in {fund_id_list} order by round(abs(mkt_value_usd),0) desc"""
+                    WHERE T1.entry_date='{end_date_pos}' and parent_fund_id in {fund_id_list} order by round(abs(mkt_value_usd),0) desc"""
 
     df_temp = pd.read_sql(my_sql, con=engine)
 
@@ -150,11 +154,14 @@ def create_aif(my_fund):
     root = Element('AIFReportingInfo', {'CreationDateAndTime': f'{now_str}',
                                          'Version': '2.0',
                                          'ReportingMemberState': 'GB',
-                                         'xsi:noNamespaceSchemaLocation': 'AIFMD_DATMAN_V1.2.xsd',
-                                         'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance'})
+                                         # 'xsi:noNamespaceSchemaLocation': 'AIFMD_DATMAN_V1.2.xsd',
+                                         #'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+                                         'xmlns': 'urn:fsa-gov-uk:MER:AIF002:2'
+                                        }
+                   )
 
-    comment = Comment(f'AIF Report {my_fund}')
-    root.append(comment)
+    # comment = Comment(f'AIF Report {my_fund}')
+    # root.append(comment)
     table_main = [['N', 'Description', 'Value']]
     html = f'<H1><u>24.1 for {my_fund}</u><H2>'
     AIFRecordInfo = SubElement(root, 'AIFRecordInfo')
@@ -302,15 +309,15 @@ def create_aif(my_fund):
 
     AIFBaseCurrencyDescription = SubElement(AIFDescription, 'AIFBaseCurrencyDescription')
 
-    AUMAmountInBaseCurrency_value = str(AUM_USD)
-    AUMAmountInBaseCurrency = SubElement(AIFBaseCurrencyDescription, 'AUMAmountInBaseCurrency')
-    AUMAmountInBaseCurrency.text = AUMAmountInBaseCurrency_value
-    table_from_base_cncy.append(['48', 'AUM Amount In Base Currency', AUMAmountInBaseCurrency_value])
-
     BaseCurrency_value = 'USD'
     BaseCurrency = SubElement(AIFBaseCurrencyDescription, 'BaseCurrency')
     BaseCurrency.text = BaseCurrency_value
     table_from_base_cncy.append(['49', 'Base Currency', BaseCurrency_value])
+
+    AUMAmountInBaseCurrency_value = str(AUM_USD)
+    AUMAmountInBaseCurrency = SubElement(AIFBaseCurrencyDescription, 'AUMAmountInBaseCurrency')
+    AUMAmountInBaseCurrency.text = AUMAmountInBaseCurrency_value
+    table_from_base_cncy.append(['48', 'AUM Amount In Base Currency', AUMAmountInBaseCurrency_value])
 
     FXEURReferenceRateType_value = 'ECB'
     FXEURReferenceRateType = SubElement(AIFBaseCurrencyDescription, 'FXEURReferenceRateType')
@@ -324,7 +331,7 @@ def create_aif(my_fund):
 
     # NAV for AIF
     # AIFNetAssetValue_value = str(NAV_USD)
-    my_sql = f"""SELECT round(sum(mkt_value_usd),0) as nav FROM position WHERE entry_date='{end_date}' and parent_fund_id in {fund_id_list}"""
+    my_sql = f"""SELECT round(sum(mkt_value_usd),0) as nav FROM position WHERE entry_date='{end_date_pos}' and parent_fund_id in {fund_id_list}"""
     df_nav = pd.read_sql(my_sql, con=engine)
     NAV_USD = int(df_nav['nav'].sum())
     AIFNetAssetValue_value = str(NAV_USD)
@@ -345,17 +352,17 @@ def create_aif(my_fund):
     HedgeFundStrategyType.text = HedgeFundStrategyType_value
     table_from_base_cncy.append(['58', 'Hedge Fund Strategy Type', f'{Investment_strategy[0]}: {Investment_strategy[1]}'])
 
-    PrimarystrategyFlag_value = 'true'
-    PrimarystrategyFlag = SubElement(HedgeFundStrategy, 'PrimarystrategyFlag')
-    PrimarystrategyFlag.text = PrimarystrategyFlag_value
-    table_from_base_cncy.append(['59', 'Primary strategy Flag', PrimarystrategyFlag_value])
+    PrimaryStrategyFlag_value = 'true'
+    PrimaryStrategyFlag = SubElement(HedgeFundStrategy, 'PrimaryStrategyFlag')
+    PrimaryStrategyFlag.text = PrimaryStrategyFlag_value
+    table_from_base_cncy.append(['59', 'Primary strategy Flag', PrimaryStrategyFlag_value])
 
     StrategyNAVRate_value = '100'
     StrategyNAVRate = SubElement(HedgeFundStrategy, 'StrategyNAVRate')
     StrategyNAVRate.text = StrategyNAVRate_value
     table_from_base_cncy.append(['60', 'Strategy NAV Rate', str(StrategyNAVRate_value)])
 
-    html += list_to_html_table(table_from_base_cncy, 'Base Cncy + Strategy (N48-63)')
+    html += list_to_html_table(table_from_base_cncy, 'Base Cncy + Strategy (N48-63)', thousand=True)
 
     TotalOpenPositions_value = len(df_aggr.index)
 
@@ -382,7 +389,7 @@ def create_aif(my_fund):
             notional_usd = row['notional_usd']
             InstrumentName_value = row['name']
             if prod_type == 'Future':
-                fut_product = find_active_contract(ticker, end_date)
+                fut_product = find_active_contract(ticker, end_date_pos)
                 if fut_product.isin:
                     isin = fut_product.isin
                 InstrumentName_value = fut_product.name
@@ -440,14 +447,13 @@ def create_aif(my_fund):
                 AIIStrikePrice = SubElement(AIIInstrumentIdentification, 'AIIStrikePrice')
                 AIIStrikePrice.text = AIIStrikePrice_value
 
-            PositionType_value = side
-
-            PositionType = SubElement(MainInstrumentTraded, 'PositionType')
-            PositionType.text = PositionType_value
-
             PositionValue_value = str(int(notional_usd))
             PositionValue = SubElement(MainInstrumentTraded, 'PositionValue')
             PositionValue.text = PositionValue_value
+
+            PositionType_value = side
+            PositionType = SubElement(MainInstrumentTraded, 'PositionType')
+            PositionType.text = PositionType_value
 
             table_main_instruments.append([Ranking_value, f'{SubAssetType_value}: {SubAssetType_label}',
                                            InstrumentCodeType_value, InstrumentName_value, isin, aii,
@@ -471,7 +477,7 @@ def create_aif(my_fund):
             table_main_instruments.append([Ranking_value, f'{SubAssetType_value}: {SubAssetType_label}',
                                            '', '', '', '', '', ''])
 
-    html += list_to_html_table(table_main_instruments, 'Main Instruments (N64-77)')
+    html += list_to_html_table(table_main_instruments, 'Main Instruments (N64-77)', thousand=True)
 
     # Geographical Focus: NAV can be<0, UK out of EEA
     table_geo_focus = [['Continent', 'NAV(%)', "AUM(%)"]]
@@ -480,7 +486,7 @@ def create_aif(my_fund):
     my_sql = f"""SELECT T4.name as country,continent,sum(mkt_value_usd) as aggr_value FROM position T1 
                  JOIN Product T2 on T1.product_id=T2.id JOIN exchange T3 on T2.exchange_id=T3.id
                  JOIN Country T4 on T3.country_id=T4.id
-                 WHERE T1.entry_date='{end_date}' and parent_fund_id in {fund_id_list} group by continent,T4.name order by sum(mkt_value_usd);"""
+                 WHERE T1.entry_date='{end_date_pos}' and parent_fund_id in {fund_id_list} group by continent,T4.name order by sum(mkt_value_usd);"""
     df_geo = pd.read_sql(my_sql, con=engine)
     total_position = df_geo['aggr_value'].sum()
     AsiaNAVPosition = df_geo.loc[df_geo['continent'] == 'APAC', 'aggr_value'].sum()
@@ -540,7 +546,7 @@ def create_aif(my_fund):
     my_sql = f"""SELECT T4.name as country,continent,sum(abs(mkt_value_usd)) as aggr_value FROM position T1 
                  JOIN Product T2 on T1.product_id=T2.id JOIN exchange T3 on T2.exchange_id=T3.id
                  JOIN Country T4 on T3.country_id=T4.id
-                 WHERE T1.entry_date='{end_date}' and parent_fund_id in {fund_id_list} group by continent,T4.name order by sum(abs(mkt_value_usd));"""
+                 WHERE T1.entry_date='{end_date_pos}' and parent_fund_id in {fund_id_list} group by continent,T4.name order by sum(abs(mkt_value_usd));"""
     df_geo = pd.read_sql(my_sql, con=engine, )
     total_position = df_geo['aggr_value'].sum()
     AsiaAUMPosition = df_geo.loc[df_geo['continent'] == 'APAC', 'aggr_value'].sum()
@@ -683,7 +689,7 @@ def create_aif(my_fund):
 
             table_principal_exposure.append([Ranking_value, f'NTA: Missing Rank', '', '', '', ''])
 
-    html += list_to_html_table(table_principal_exposure, '10 Principal Exposures (N94-102)')
+    html += list_to_html_table(table_principal_exposure, '10 Principal Exposures (N94-102)', thousand=True)
 
     # MostImportantConcentration
     table_portfolio_concentration = [['Ranking', 'Asset Type', 'MIC', 'Position', 'Aggreg Value', 'Rate %']]
@@ -757,7 +763,7 @@ def create_aif(my_fund):
 
             table_portfolio_concentration.append([Ranking_value, f'NTA: Missing Rank', '', '', '', ''])
 
-    html += list_to_html_table(table_portfolio_concentration, '5 Most Important Portfolio Concentrations (N103-112)')
+    html += list_to_html_table(table_portfolio_concentration, '5 Most Important Portfolio Concentrations (N103-112)', thousand=True)
 
     # Principal Markets
     # 3 biggest markets (take only listed, not OTC)
@@ -812,7 +818,7 @@ def create_aif(my_fund):
 
             table_top_markets.append([Ranking_value, f'NOT: Missing Rank', ''])
 
-    html += list_to_html_table(table_top_markets, 'Principal Markets (N114-117)')
+    html += list_to_html_table(table_top_markets, 'Principal Markets (N114-117)', thousand=True)
 
     # Investor Concentration:
     InvestorConcentration = SubElement(MostImportantConcentration, 'InvestorConcentration')
@@ -891,7 +897,7 @@ def create_aif(my_fund):
         LongValue.text = '0'
         table_asset_type.append([SubAssetType_value[0], SubAssetType_value[1], 0, ''])
 
-    html += list_to_html_table(table_asset_type, 'Individual Exposures (N121-124)')
+    html += list_to_html_table(table_asset_type, 'Individual Exposures (N121-124)', thousand=True)
 
     # Turnover
     # https://www.esma.europa.eu/sites/default/files/library/2015/11/2011_379.pdf
@@ -918,15 +924,15 @@ def create_aif(my_fund):
 
         table_turnover.append([TurnoverSubAssetType_value[0], TurnoverSubAssetType_value[1], MarketValue_value])
 
-    html += list_to_html_table(table_turnover, 'Turnover (N125-127)')
+    html += list_to_html_table(table_turnover, 'Turnover (N125-127)', thousand=True)
 
     # Currency of Exposures
     CurrencyExposures = SubElement(IndividualExposure, 'CurrencyExposures')
     table_currency = [['Cncy', 'Long', 'Short']]
 
-    my_sql = f"""SELECT T3.code as cncy,if(quantity>0,"L","S") as side,sum(abs(mkt_value_usd)) as notional_usd FROM position T1 JOIN product T2 on T1.product_id=T2.id
+    my_sql = f"""SELECT T3.code as cncy,if(quantity>0,"L","S") as side,sum(abs(round(mkt_value_usd, 0))) as notional_usd FROM position T1 JOIN product T2 on T1.product_id=T2.id
                 JOIN currency T3 on T2.currency_id=T3.id JOIN aifmd T4 on T2.aifmd_exposure_id=T4.id
-                WHERE entry_date='{end_date}' and parent_fund_id in {fund_id_list} group by T3.code,if(quantity>0,"L","S") order by T3.code;"""
+                WHERE entry_date='{end_date_pos}' and parent_fund_id in {fund_id_list} group by T3.code,if(quantity>0,"L","S") order by T3.code;"""
 
     df_cncy = pd.read_sql(my_sql, con=engine)
 
@@ -970,7 +976,7 @@ def create_aif(my_fund):
         LongPositionValue.text = '0'
         table_currency.append(['USD', 0, ''])
 
-    html += list_to_html_table(table_currency, 'Currency of exposures (N128-130)')
+    html += list_to_html_table(table_currency, 'Currency of exposures (N128-130)', thousand=True)
 
     # RiskProfile
     table_risk_profile = [['Num', 'Description', 'Value']]
@@ -1024,16 +1030,13 @@ def create_aif(my_fund):
     table_risk_profile.append(['151', 'trade volumes for derivatives traded on OTC', OTCRate_value])
 
     ClearedDerivativesRate = SubElement(TradingClearingMechanism, 'ClearedDerivativesRate')
-    if cfd_notional + future_notional == 0:
-        CCPRate_value_num = 0
-    else:
-        CCPRate_value_num = round((100 * future_notional / (cfd_notional + future_notional)), 2)
+    CCPRate_value_num = 0
     CCPRate_value = str(CCPRate_value_num)
     CCPRate = SubElement(ClearedDerivativesRate, 'CCPRate')
     CCPRate.text = CCPRate_value
     table_risk_profile.append(['152', 'trade volumes for derivatives cleared by CCP', CCPRate_value])
 
-    BilateralClearingRate_value = str(100 - CCPRate_value_num)
+    BilateralClearingRate_value = str(100)
     BilateralClearingRate = SubElement(ClearedDerivativesRate, 'BilateralClearingRate')
     BilateralClearingRate.text = BilateralClearingRate_value
     table_risk_profile.append(['153', 'trade volumes for derivatives cleared bilaterally', BilateralClearingRate_value])
@@ -1043,7 +1046,7 @@ def create_aif(my_fund):
     AllCounterpartyCollateralCash.text = AllCounterpartyCollateralCash_value
     table_risk_profile.append(['157', 'Collateral Cash amount posted to all counterparties', AllCounterpartyCollateralCash_value])
 
-    html += list_to_html_table(table_risk_profile, 'Risk Profile (N137-159)')
+    html += list_to_html_table(table_risk_profile, 'Risk Profile (N137-159)', thousand=True)
 
     # Top Five Counterparty Exposures
     table_cpty = [['Ranking', 'Cpty exposure Flag', 'Name Cpty', 'LEI Cpty', 'NAV %']]
@@ -1051,7 +1054,7 @@ def create_aif(my_fund):
 
     my_sql = f"""SELECT round(sum(abs(mkt_value_usd)*qty_gs/quantity),0) as GS,round(sum(abs(mkt_value_usd)*qty_ms/quantity),0) as MS,
     round(sum(abs(mkt_value_usd)*qty_ubs/quantity),0) as UBS FROM position T1 
-                 WHERE T1.entry_date='{end_date}' and parent_fund_id in {fund_id_list};"""
+                 WHERE T1.entry_date='{end_date_pos}' and parent_fund_id in {fund_id_list};"""
     df_cpty = pd.read_sql(my_sql, con=engine)
 
     my_sql = "SELECT name,legal_name,lei FROM parent_broker;"
@@ -1199,7 +1202,7 @@ def create_aif(my_fund):
     InvestorGroupRate = SubElement(InvestorGroup, 'InvestorGroupRate')
     InvestorGroupRate.text = InvestorGroupRate_value
     table_liquidity.append(['209', 'Investor Group Rate', InvestorGroupRate_value])
-    html += list_to_html_table(table_liquidity, 'Liquidity Profile (N178-217)')
+    html += list_to_html_table(table_liquidity, 'Liquidity Profile (N178-217)', thousand=True)
 
     # Financing liquidity (210-217) - Not reported
     OperationalRisk = SubElement(RiskProfile, 'OperationalRisk')
@@ -1251,7 +1254,7 @@ def create_aif(my_fund):
         ['Redemption', Redemption_value[0], Redemption_value[1],
          Redemption_value[2]])
 
-    html += list_to_html_table(table_operation_risk, 'Historical Risk Profile (N219-278)')
+    html += list_to_html_table(table_operation_risk, 'Historical Risk Profile (N219-278)', thousand=True)
 
     StressTests = SubElement(AIFIndividualInfo, 'StressTests')
     StressTestsResultArticle15 = SubElement(StressTests, 'StressTestsResultArticle15')
@@ -1314,7 +1317,7 @@ def create_aif(my_fund):
     table_leverage.append(
         ['295', 'Leverage under commitment method', CommitmentMethodRate_value])
 
-    html += list_to_html_table(table_leverage, 'Leverage (N271-295)')
+    html += list_to_html_table(table_leverage, 'Leverage (N271-295)', thousand=True)
 
     html += f'<H1><u>24.4 for {my_fund}</u><H2>'
     table_borrowing = [['Ranking', 'Borrowing Flag', 'Source Name', 'Source LEI', 'Leverage Amount']]
@@ -1323,7 +1326,7 @@ def create_aif(my_fund):
 
     my_sql = f"""SELECT round(sum(abs(mkt_value_usd)*qty_gs/quantity),0) as GS,round(sum(abs(mkt_value_usd)*qty_ms/quantity),0) as MS,
     round(sum(abs(mkt_value_usd)*qty_ubs/quantity),0) as UBS FROM position T1 
-                 WHERE T1.entry_date='{end_date}' and parent_fund_id in {fund_id_list} and quantity<0;"""
+                 WHERE T1.entry_date='{end_date_pos}' and parent_fund_id in {fund_id_list} and quantity<0;"""
     df_cpty = pd.read_sql(my_sql, con=engine)
 
     LeverageAmount_GS = df_cpty['GS'].sum()
@@ -1379,7 +1382,7 @@ def create_aif(my_fund):
 
             table_borrowing.append([Ranking_value, BorrowingSourceFlag_value, '', '', ''])
 
-    html += list_to_html_table(table_borrowing, 'Borrowing (N296-301)')
+    html += list_to_html_table(table_borrowing, 'Borrowing (N296-301)', thousand=True)
 
     output = prettify(root)
     print(output)

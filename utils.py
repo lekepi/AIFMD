@@ -1,7 +1,7 @@
 from datetime import date
 from xml.etree import ElementTree
 from xml.dom import minidom
-from models import config_class, session, Product, engine, PositionNav, InvestorActivity
+from models import config_class, session, Product, engine, PositionNav, PositionPb
 from email.message import EmailMessage
 from email.mime.base import MIMEBase
 from email import encoders
@@ -177,23 +177,30 @@ def get_asset_list(my_date):
     ubs_stock = 0
     ubs_cfd = 0
     if not df[(df['pb'] == 'UBS')].empty:
-        ubs_cash_list = df[(df['pb'] == 'UBS') & (df['fund'] == 'Neutral') &
+        ubs_cash_list = df[(df['pb'] == 'UBS') & (df['fund'] == 'Alto') &
                            (df['prod_type'] == 'FX Cash')]['Notional_usd'].values
         if ubs_cash_list: ubs_cash = ubs_cash_list[0]
-        ubs_stock_list = df[(df['pb'] == 'UBS') & (df['fund'] == 'Neutral') &
+        ubs_stock_list = df[(df['pb'] == 'UBS') & (df['fund'] == 'Alto') &
                             (df['prod_type'] == 'Cash') & (df['is_cfd'] == 0)]['Notional_usd'].values
         if ubs_stock_list: ubs_stock = ubs_stock_list[0]
-        ubs_cfd_list = df[(df['pb'] == 'UBS') & (df['fund'] == 'Neutral') &
+        ubs_cfd_list = df[(df['pb'] == 'UBS') & (df['fund'] == 'Alto') &
                           (df['prod_type'] == 'Cash') & (df['is_cfd'] == 1)]['Notional_usd'].values
         if ubs_cfd_list: ubs_cfd = ubs_cfd_list[0]
 
-    money_market = session.query(PositionNav).filter(PositionNav.product_id == 552). \
-        order_by(PositionNav.entry_date.desc()).first()
-    money_market_amount = money_market.notional_nav_usd
+    gs_money_market = session.query(PositionNav).filter(PositionNav.product_id == 552).\
+        filter(PositionNav.entry_date <= my_date).order_by(PositionNav.entry_date.desc()).first()
+    gs_money_market_amount = gs_money_market.notional_nav_usd
 
-    gs_asset = ['GS', gs_cash, gs_stock, gs_cfd, money_market_amount]
+    ubs_money_market = session.query(PositionPb).filter(PositionPb.product_id == 1059).filter(
+        PositionPb.entry_date <= my_date).order_by(PositionPb.entry_date.desc()).first()
+    if ubs_money_market:
+        ubs_money_market_amount = ubs_money_market.quantity
+    else:
+        ubs_money_market_amount = 0
+
+    gs_asset = ['GS', gs_cash, gs_stock, gs_cfd, gs_money_market_amount]
     ms_asset = ['MS', ms_cash, ms_stock, ms_cfd, 0]
-    ubs_asset = ['UBS', ubs_cash, ubs_stock, ubs_cfd, 0]
+    ubs_asset = ['UBS', ubs_cash, ubs_stock, ubs_cfd, ubs_money_market_amount]
 
     return gs_asset, ms_asset, ubs_asset
 

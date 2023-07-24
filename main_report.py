@@ -10,6 +10,7 @@ from create_AIF import create_aif
 # 2013-1358_aifmd_reporting_it_technical_guidance-Revision4.xlsx -> Technical Guidance for each field
 # AIFMD_REPORTING_DataTypes_V1.2.xsd: structure of the XML Document
 
+
 if __name__ == '__main__':
     create_aifm()
     create_aif('ALTO')

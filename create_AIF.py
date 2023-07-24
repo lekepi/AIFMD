@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 from utils import previous_quarter, simple_email
-from xml.etree.ElementTree import Element, SubElement, Comment, ElementTree
-from utils import prettify, list_to_html_table, find_active_contract, get_asset_list, get_investor_activity
+from xml.etree.ElementTree import Element, SubElement, ElementTree
+from utils import prettify, list_to_html_table, find_active_contract, get_asset_list
 from manual_data import EURUSD_RATE, MainBeneficialOwnersRate_alto, MainBeneficialOwnersRate_neutral, \
     AnnualInvestmentReturnRate_alto, AnnualInvestmentReturnRate_neutral, GrossInvestmentReturnsRate_alto, \
     GrossInvestmentReturnsRate_neutral, NetInvestmentReturnsRate_alto, NetInvestmentReturnsRate_neutral, \
@@ -92,8 +92,11 @@ def create_aif(my_fund):
         fund_id_list = '(1,5)'
         MainBeneficialOwnersRate_value = str(MainBeneficialOwnersRate_alto)
         AnnualInvestmentReturnRate_value = str(AnnualInvestmentReturnRate_alto)
-        AllCounterpartyCollateralCash_value = str(int(gs_asset[1] + ms_asset[1] + gs_asset[2] + ms_asset[2]))  # pb_name, cash, stock, cfd, money_market
-        UnencumberedCash_value = str(int(gs_margin.account_value - gs_margin.margin_requirement + ms_margin.account_value - ms_margin.margin_requirement + gs_asset[4]))
+        AllCounterpartyCollateralCash_value = str(int(gs_asset[1] + ms_asset[1] + ubs_asset[1] + gs_asset[2] +
+                                                      ms_asset[2] + ubs_asset[2]))  # pb_name, cash, stock, cfd, money_market
+        UnencumberedCash_value = str(int(gs_margin.account_value - gs_margin.margin_requirement +
+                                         ms_margin.account_value - ms_margin.margin_requirement +
+                                         ubs_margin.account_value - ubs_margin.margin_requirement + gs_asset[4]))
         GrossInvestmentReturnsRate_value = GrossInvestmentReturnsRate_alto
         NetInvestmentReturnsRate_value = NetInvestmentReturnsRate_alto
         NAVChangeRate_value = NAVChangeRate_alto

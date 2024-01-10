@@ -501,6 +501,98 @@ class NameValue(Base):
     my_value = Column(String(45))
 
 
+class Investor(Base):
+    __tablename__ = 'investor'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100))
+    mappings = relationship('InvestorMapping', viewonly=True, lazy=True)
+
+
+class InvestorNav(Base):
+    __tablename__ = 'investor_nav'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100))
+
+
+class InvestorMapping(Base):
+    __tablename__ = 'investor_mapping'
+    id = Column(Integer, primary_key=True)
+    investor_nav_id = Column(ForeignKey("investor_nav.id"))
+    investor_nav = relationship("InvestorNav")
+    investor_number = Column(String(30))
+    investor_id = Column(ForeignKey("investor.id"))
+    investor = relationship("Investor")
+
+
+class InvestorFund(Base):
+    __tablename__ = 'investor_fund'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100))
+
+
+class InvestorCapital(Base):
+    __tablename__ = 'investor_capital'
+    id = Column(Integer, primary_key=True)
+    entry_date = Column(Date, nullable=False)
+    investor_fund_id = Column(ForeignKey("investor_fund.id"))
+    investor_fund = relationship("InvestorFund")
+    cncy_id = Column(ForeignKey("currency.id"))
+    cncy = relationship("Currency")
+    investor_number = Column(String(100))
+    fund_type = Column(String(10))
+    class_name = Column(String(10))
+    serie = Column(String(10))
+    investor_nav_id = Column(ForeignKey("investor_nav.id"))
+    investor_nav = relationship("InvestorNav")
+    beginning_balance = Column(Float)
+    additions = Column(Float)
+    redemptions = Column(Float)
+    total_income = Column(Float)
+    management_fee = Column(Float)
+    incentive_fee = Column(Float)
+    ending_balance = Column(Float)
+    return_rate = Column(Float)
+    fx_rate = Column(Float)
+    redemption_type = Column(String(10))
+    allocs = relationship('InvestorAlloc', viewonly=True, lazy=True)
+
+
+class InvestorAlloc(Base):
+    __tablename__ = 'investor_alloc'
+    id = Column(Integer, primary_key=True)
+    investor_capital_id = Column(ForeignKey("investor_capital.id"))
+    investor_capital = relationship("InvestorCapital")
+    investor_id = Column(ForeignKey("investor.id"))
+    investor = relationship("Investor")
+    beginning_per = Column(Float)
+    additions_per = Column(Float)
+    redemptions_per = Column(Float)
+    ending_per = Column(Float)
+    income_per = Column(Float)
+
+
+class NavAccountStatement(Base):
+    __tablename__ = 'nav_account_statement'
+    id = Column(Integer, primary_key=True)
+    entry_date = Column(Date, nullable=False)
+    data_name = Column(String(length=45))
+    data_daily = Column(Float)
+    data_mtd = Column(Float)
+    data_qtd = Column(Float)
+    data_ytd = Column(Float)
+    active = Column(Boolean, default=1)
+    status = Column(String(length=45), default='Daily')
+
+
+class FundFee(Base):
+    __tablename__ = 'fund_fee'
+    id = Column(Integer, primary_key=True)
+    entry_date = Column(Date, nullable=False)
+    class_type = Column(String(10), nullable=False)
+    fee_type = Column(String(45), nullable=False)
+    value = Column(Float, nullable=False)
+
+
 def copy_trade(trade):
     amended_trade = Trade(
         order_number=trade.order_number,

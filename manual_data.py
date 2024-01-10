@@ -1,4 +1,4 @@
-from openpyxl import workbook, load_workbook
+from openpyxl import load_workbook
 
 FILE_DIR = 'A:\Master File\Key - AIFMD Manual Data.xlsm'
 

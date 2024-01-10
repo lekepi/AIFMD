@@ -187,9 +187,16 @@ def get_asset_list(my_date):
                           (df['prod_type'] == 'Cash') & (df['is_cfd'] == 1)]['Notional_usd'].values
         if ubs_cfd_list: ubs_cfd = ubs_cfd_list[0]
 
+    gs_money_market_amount = 0
     gs_money_market = session.query(PositionNav).filter(PositionNav.product_id == 552).\
         filter(PositionNav.entry_date <= my_date).order_by(PositionNav.entry_date.desc()).first()
-    gs_money_market_amount = gs_money_market.notional_nav_usd
+    if gs_money_market:
+        gs_money_market_amount += gs_money_market.notional_nav_usd
+
+    gs_money_market2 = session.query(PositionNav).filter(PositionNav.product_id == 1069).\
+        filter(PositionNav.entry_date <= my_date).order_by(PositionNav.entry_date.desc()).first()
+    if gs_money_market2:
+        gs_money_market_amount += gs_money_market2.notional_nav_usd
 
     ubs_money_market = session.query(PositionPb).filter(PositionPb.product_id == 1059).filter(
         PositionPb.entry_date <= my_date).order_by(PositionPb.entry_date.desc()).first()

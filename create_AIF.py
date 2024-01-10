@@ -2,12 +2,14 @@ from datetime import date, datetime, timedelta
 from utils import previous_quarter, simple_email
 from xml.etree.ElementTree import Element, SubElement, ElementTree
 from utils import prettify, list_to_html_table, find_active_contract, get_asset_list
-from manual_data import EURUSD_RATE, MainBeneficialOwnersRate_alto, MainBeneficialOwnersRate_neutral, \
-    AnnualInvestmentReturnRate_alto, AnnualInvestmentReturnRate_neutral, GrossInvestmentReturnsRate_alto, \
-    GrossInvestmentReturnsRate_neutral, NetInvestmentReturnsRate_alto, NetInvestmentReturnsRate_neutral, \
-    NAVChangeRate_alto, NAVChangeRate_neutral, Subscription_alto, Subscription_neutral, Redemption_alto, \
-    Redemption_neutral, StressTestsResultArticle15_alto, \
+from manual_data import EURUSD_RATE, MainBeneficialOwnersRate_neutral, \
+    AnnualInvestmentReturnRate_alto, AnnualInvestmentReturnRate_neutral, \
+    GrossInvestmentReturnsRate_neutral, NetInvestmentReturnsRate_neutral, \
+    NAVChangeRate_neutral, Subscription_neutral, Redemption_neutral, StressTestsResultArticle15_alto, \
     StressTestsResultArticle15_neutral, StressTestsResultArticle16_alto, StressTestsResultArticle16_neutral
+from investor_module import MainBeneficialOwnersRate_alto, GrossInvestmentReturnsRate_alto, \
+    NetInvestmentReturnsRate_alto, NAVChangeRate_alto, Subscription_alto, Redemption_alto
+
 
 import pandas as pd
 from models import engine, session, ParentFund, ParentBroker, Margin, ShareClass
@@ -1027,7 +1029,7 @@ def create_aif(my_fund):
     RegulatedMarketRate.text = RegulatedMarketRate_value
     table_risk_profile.append(['150', 'trade volumes for derivatives traded on regulated exchanges', RegulatedMarketRate_value])
 
-    OTCRate_value = str(100 - RegulatedMarketRate_value_num)
+    OTCRate_value = str(round(100 - RegulatedMarketRate_value_num, 2))
     OTCRate = SubElement(TradedDerivatives, 'OTCRate')
     OTCRate.text = OTCRate_value
     table_risk_profile.append(['151', 'trade volumes for derivatives traded on OTC', OTCRate_value])

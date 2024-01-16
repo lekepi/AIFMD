@@ -111,9 +111,9 @@ def get_subscription_redemption_alto():
         df_add_red['rate'] = df_add_red['cncy'].apply(lambda x: rate_eur if x == 'EUR' else rate_gbp if x == 'GBP' else 1)
         df_add_red['additions USD'] = df_add_red['additions'] / df_add_red['rate']
         df_add_red['redemptions USD'] = df_add_red['redemptions'] / df_add_red['rate']
-        additions_sum = df_add_red['additions USD'].sum()
+        additions_sum = int(df_add_red['additions USD'].sum())
         Subscription_alto.append(additions_sum)
-        redemptions_sum = df_add_red['redemptions USD'].sum()
+        redemptions_sum = int(df_add_red['redemptions USD'].sum())
         Redemption_alto.append(redemptions_sum)
     return Subscription_alto, Redemption_alto
 
